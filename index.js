@@ -66,7 +66,9 @@ function tryShow() {
     if (t.length < 5) { selBtn.style.display = 'none'; return; }
     const node = sel.focusNode || sel.anchorNode;
     const mes = node?.parentElement?.closest?.('.mes');
-    selChar = mes ? (mes.querySelector('.name_text')?.textContent?.trim() || mes.getAttribute('ch_name') || '') : '';
+    // 이모지/특수문자 제거하고 텍스트만 추출
+    const rawName = mes ? (mes.querySelector('.name_text')?.textContent?.trim() || mes.getAttribute('ch_name') || '') : '';
+    selChar = rawName.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FEFF}]/gu, '').trim();
     selText = t;
     let x = window.innerWidth/2, y = 300;
     try { const r = sel.getRangeAt(0).getClientRects(); if (r.length) { x=r[r.length-1].right; y=r[r.length-1].bottom; } } catch(_){}
