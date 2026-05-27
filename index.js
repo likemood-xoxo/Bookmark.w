@@ -3,7 +3,7 @@ import { saveSettingsDebounced } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 
 const EXT = 'bookmark-w';
-const DEF = { bgStyle:'parchment', showCharName:true, personaNames:[], textAlign:'center', textColor:'dark' };
+const DEF = { bgStyle:'parchment', showCharName:true, personaNames:[], textAlign:'center', textColor:'dark', fontSize:0 };
 
 jQuery(async () => { loadSettings(); injectBtn(); attachListener(); });
 
@@ -179,6 +179,21 @@ function openModal(text, charName) {
         optRow.appendChild(b);
     });
 
+    // 글씨 크기 슬라이더
+    const sizeRow = document.createElement('div');
+    Object.assign(sizeRow.style, { display:'flex', alignItems:'center', gap:'10px', width:'100%', flexShrink:'0', padding:'0 4px', boxSizing:'border-box' });
+    const sizeLabel = document.createElement('span');
+    Object.assign(sizeLabel.style, { color:'rgba(200,184,144,0.7)', fontSize:'12px', whiteSpace:'nowrap', minWidth:'44px' });
+    sizeLabel.textContent = S().fontSize ? S().fontSize+'px' : '자동';
+    const slider = document.createElement('input');
+    slider.type='range'; slider.min='0'; slider.max='30'; slider.step='1'; slider.value=S().fontSize||0;
+    Object.assign(slider.style, { flex:'1', accentColor:'#c9a96e', cursor:'pointer' });
+    const resetBtn = mkBtn('↺', { background:'none', border:'none', color:'rgba(201,169,110,0.6)', fontSize:'16px', padding:'0 2px' });
+    slider.oninput = () => { const v=parseInt(slider.value); S().fontSize=v; save(); sizeLabel.textContent=v?v+'px':'자동'; redraw(); };
+    const doReset = () => { slider.value=0; S().fontSize=0; save(); sizeLabel.textContent='자동'; redraw(); };
+    resetBtn.onclick=doReset; resetBtn.addEventListener('touchend',e=>{e.preventDefault();doReset();});
+    sizeRow.appendChild(sizeLabel); sizeRow.appendChild(slider); sizeRow.appendChild(resetBtn);
+
     // 화자 + 페르소나
     const bottomRow = mkRow();
     const charLbl = document.createElement('label');
@@ -230,7 +245,7 @@ function openModal(text, charName) {
     dlBtn.onclick=dl; dlBtn.addEventListener('touchend',e=>{e.preventDefault();dl();});
 
     card.appendChild(closeBtn); card.appendChild(canvas); card.appendChild(styleRow);
-    card.appendChild(optRow); card.appendChild(bottomRow); card.appendChild(pPanel); card.appendChild(dlBtn);
+    card.appendChild(optRow); card.appendChild(sizeRow); card.appendChild(bottomRow); card.appendChild(pPanel); card.appendChild(dlBtn);
     modal.appendChild(card); document.documentElement.appendChild(modal);
 
     if (S().bgStyle==='unsplash' && !photoUrl) fetchPhoto(keywords(text)).then(redraw);
@@ -273,7 +288,11 @@ function renderCard(canvas, text, charName) {
 
     // 폰트 크기 자동 조정 (22px~13px)
     const paras = text.split(/\n\n|\n/).map(p=>p.trim()).filter(Boolean);
+    const manualFs = S().fontSize || 0;
     let fs=22, lh=38, pg=22;
+    if (manualFs >= 8) {
+        fs=manualFs; lh=Math.round(fs*1.72); pg=Math.round(fs*1.0);
+    } else
     for (let f=22; f>=13; f--) {
         ctx.font=`italic ${f}px ${font}`;
         const l=Math.round(f*1.72), g=Math.round(f*1.0);
