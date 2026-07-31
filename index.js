@@ -486,12 +486,13 @@ function htmlToMarkdown(html){
     return div.innerText;
 }
 function wrapText(ctx,text,maxW){
-    const words = text.split(' ');
+    const tokens = text.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`|\s+)/g).filter(Boolean);
+
     const lines=[];
     let cur='';
 
-    words.forEach(w=>{
-        const test = cur ? cur+' '+w : w;
+    tokens.forEach(token=>{
+        const test = cur + token;
 
         const clean = test
             .replace(/\*\*(.+?)\*\*/g,'$1')
@@ -499,14 +500,14 @@ function wrapText(ctx,text,maxW){
             .replace(/`(.+?)`/g,'$1');
 
         if(ctx.measureText(clean).width > maxW && cur){
-            lines.push(cur);
-            cur=w;
+            lines.push(cur.trim());
+            cur=token.trimStart();
         } else {
             cur=test;
         }
     });
 
-    if(cur) lines.push(cur);
+    if(cur.trim()) lines.push(cur.trim());
 
     return lines;
 }
