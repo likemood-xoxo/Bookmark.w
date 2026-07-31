@@ -279,10 +279,28 @@ function openModal(text, charName) {
     // PNG 저장
     const dlBtn = mkBtn('⬇ PNG 저장',{background:'linear-gradient(135deg,#3b2a1a,#5a3e20)',color:'#f5e9c9',border:'1px solid #c9a96e',borderRadius:'20px',padding:'10px 28px',fontSize:'14px',flexShrink:'0'});
     const dl=()=>{
-    const a=document.createElement('a');
-    a.download=`bookmark_${Date.now()}.png`;
-    a.href=canvas.toDataURL('image/png');
-    a.click();
+    canvas.toBlob(async (blob)=>{
+        const file = new File(
+            [blob],
+            `bookmark_${Date.now()}.png`,
+            {type:'image/png'}
+        );
+
+        // 아이폰 웹앱(PWA) 공유 저장
+        if (navigator.canShare && navigator.canShare({files:[file]})) {
+            await navigator.share({
+                files:[file]
+            });
+            return;
+        }
+
+        // 기존 방식 (PC/Safari)
+        const a=document.createElement('a');
+        a.download=file.name;
+        a.href=URL.createObjectURL(blob);
+        a.click();
+    }, 'image/png');
+};
 a.remove();
         // 저장 완료 토스트
         const toast=document.createElement('div');
