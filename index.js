@@ -80,8 +80,20 @@ function tryShow() {
     let x = window.innerWidth/2, y = 300;
     try { const r = sel.getRangeAt(0).getClientRects(); if (r.length) { x=r[r.length-1].right; y=r[r.length-1].bottom; } } catch(_){}
     const sz = 28;
-    selBtn.style.left = Math.min(Math.max(x-sz/2,4), window.innerWidth-sz-4)+'px';
-    selBtn.style.top  = Math.min(y+52, window.innerHeight-sz-8)+'px';
+    const btnX = Math.min(
+    Math.max(x - sz / 2, 4),
+    window.innerWidth - sz - 4
+);
+
+let btnY = y + 12;
+
+// 아래 공간 부족하면 선택 영역 위에 표시
+if (btnY + sz > window.innerHeight - 8) {
+    btnY = Math.max(8, y - sz - 12);
+}
+
+selBtn.style.left = btnX + 'px';
+selBtn.style.top = btnY + 'px';
     selBtn.style.display = 'block';
 }
 
