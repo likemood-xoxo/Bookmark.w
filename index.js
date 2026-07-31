@@ -286,7 +286,6 @@ function openModal(text, charName) {
             {type:'image/png'}
         );
 
-        // 아이폰 웹앱(PWA) 공유 저장
         if (navigator.canShare && navigator.canShare({files:[file]})) {
             await navigator.share({
                 files:[file]
@@ -294,16 +293,14 @@ function openModal(text, charName) {
             return;
         }
 
-        // 기존 방식 (PC/Safari)
         const a=document.createElement('a');
         a.download=file.name;
         a.href=URL.createObjectURL(blob);
         a.click();
+        a.remove();
+        toastr.success('🔖 저장 완료!');
     }, 'image/png');
 };
-a.remove();
-        toastr.success('🔖 저장 완료!');
-    };
     dlBtn.onclick = dl;
 
     card.appendChild(closeBtn); card.appendChild(canvas); card.appendChild(styleRow);
