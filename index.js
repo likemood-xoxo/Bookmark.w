@@ -336,7 +336,6 @@ const TCOLORS = {
 };
 
 function renderCard(canvas, text, charName) {
-    text = htmlToMarkdown(text);
     const bg = S().bgStyle;
     const theme = THEMES[bg] || THEMES.parchment;
     const tc = TCOLORS[S().textColor] || TCOLORS.dark;
