@@ -297,7 +297,10 @@ function openModal(text, charName) {
         );
 
         // iOS Safari / PWA 대응
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
 if (
+    isIOS &&
     navigator.share &&
     navigator.canShare &&
     navigator.canShare({files:[file]})
@@ -486,13 +489,13 @@ function htmlToMarkdown(html){
     return div.innerText;
 }
 function wrapText(ctx,text,maxW){
-    const tokens = text.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`|\s+)/g).filter(Boolean);
+    const tokens = text.match(/(\*\*.*?\*\*|\*.*?\*|`.*?`|\S+)/g) || [];
 
     const lines=[];
     let cur='';
 
     tokens.forEach(token=>{
-        const test = cur + token;
+        const test = cur ? cur+' '+token : token;
 
         const clean = test
             .replace(/\*\*(.+?)\*\*/g,'$1')
@@ -500,14 +503,14 @@ function wrapText(ctx,text,maxW){
             .replace(/`(.+?)`/g,'$1');
 
         if(ctx.measureText(clean).width > maxW && cur){
-            lines.push(cur.trim());
-            cur=token.trimStart();
+            lines.push(cur);
+            cur=token;
         } else {
             cur=test;
         }
     });
 
-    if(cur.trim()) lines.push(cur.trim());
+    if(cur) lines.push(cur);
 
     return lines;
 }
