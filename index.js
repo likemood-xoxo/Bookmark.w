@@ -279,8 +279,10 @@ function openModal(text, charName) {
     // PNG 저장
     const dlBtn = mkBtn('⬇ PNG 저장',{background:'linear-gradient(135deg,#3b2a1a,#5a3e20)',color:'#f5e9c9',border:'1px solid #c9a96e',borderRadius:'20px',padding:'10px 28px',fontSize:'14px',flexShrink:'0'});
     const dl=()=>{
-    const url = canvas.toDataURL('image/png');
-    window.open(url, '_blank');
+    const a=document.createElement('a');
+    a.download=`bookmark_${Date.now()}.png`;
+    a.href=canvas.toDataURL('image/png');
+    a.click();
 a.remove();
         // 저장 완료 토스트
         const toast=document.createElement('div');
