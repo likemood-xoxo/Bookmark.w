@@ -341,7 +341,7 @@ function renderCard(canvas, text, charName) {
         fs=manualFs; lh=Math.round(fs*1.72); pg=Math.round(fs*1.0);
     } else
     for (let f=22; f>=13; f--) {
-        ctx.font=`italic ${f}px ${font}`;
+        ctx.font=`${f}px ${font}`;
         const l=Math.round(f*1.72), g=Math.round(f*1.0);
         let tot=0;
         paras.forEach((p,i)=>{ tot+=wrapText(ctx,p,W-PAD*2).length*l; if(i<paras.length-1)tot+=g; });
@@ -413,53 +413,139 @@ function drawRule(ctx,x1,y,x2,c){ctx.save();ctx.strokeStyle=c;ctx.lineWidth=0.7;
 function drawOrnament(ctx,cx,cy,c,flip){ctx.save();ctx.fillStyle=c;ctx.globalAlpha=0.8;ctx.font=flip?'18px serif':'20px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(flip?'\u2767':'\u2766',cx,cy);ctx.restore();}
 function addNoise(ctx,W,H,a){ctx.save();ctx.globalAlpha=a;for(let y=0;y<H;y+=2)for(let x=0;x<W;x+=2){const v=Math.random()>0.5?255:0;ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(x,y,1,1);}ctx.restore();}
 function wrapText(ctx,text,maxW){
-    // 마크다운 기호 제거 후 측정 (** * ` 제거)
-    const clean = text.replace(/\*\*(.+?)\*\*/g,'$1').replace(/\*(.+?)\*/g,'$1').replace(/`(.+?)`/g,'$1');
-    const words=clean.split(' ');const lines=[];let cur='';
-    words.forEach(w=>{const t=cur?cur+' '+w:w;if(ctx.measureText(t).width>maxW&&cur){lines.push(cur);cur=w;}else cur=t;});
-    if(cur)lines.push(cur);return lines;
+    const words = text.split(' ');
+    const lines=[];
+    let cur='';
+
+    words.forEach(w=>{
+        const test = cur ? cur+' '+w : w;
+
+        const clean = test
+            .replace(/\*\*(.+?)\*\*/g,'$1')
+            .replace(/\*(.+?)\*/g,'$1')
+            .replace(/`(.+?)`/g,'$1');
+
+        if(ctx.measureText(clean).width > maxW && cur){
+            lines.push(cur);
+            cur=w;
+        } else {
+            cur=test;
+        }
+    });
+
+    if(cur) lines.push(cur);
+
+    return lines;
 }
 
 // 마크다운 스타일 적용해서 한 줄 그리기
 function drawStyledLine(ctx, line, x, y, baseFont, align) {
     const parts = [];
     const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|[^*`]+)/g;
+
     let m;
+
     while ((m = re.exec(line)) !== null) {
-        if (m[2]) parts.push({ text: m[2], bold: true, italic: false });
-        else if (m[3]) parts.push({ text: m[3], bold: false, italic: true });
-        else if (m[4]) parts.push({ text: m[4], bold: false, italic: false, code: true });
-        else parts.push({ text: m[0], bold: false, italic: false });
+        if (m[2]) {
+            parts.push({
+                text:m[2],
+                bold:true,
+                italic:false
+            });
+        } else if (m[3]) {
+            parts.push({
+                text:m[3],
+                bold:false,
+                italic:true
+            });
+        } else if (m[4]) {
+            parts.push({
+                text:m[4],
+                bold:false,
+                italic:false,
+                code:true
+            });
+        } else {
+            parts.push({
+                text:m[0],
+                bold:false,
+                italic:false
+            });
+        }
     }
+
+
     const sizeMatch = baseFont.match(/(\d+)px/);
     const size = sizeMatch ? parseInt(sizeMatch[1]) : 18;
-    const fontName = baseFont.replace(/^[\d.]+px\s*/, '');
+    const fontName = baseFont.replace(/^[\d.]+px\s*/,'');
 
-    // 전체 너비 계산
+
+    // 실제 출력 폭 계산
     let totalW = 0;
-    parts.forEach(p => {
-        ctx.font = (p.bold?'bold ':'')+(p.italic?'italic ':'')+size+'px '+fontName;
+
+    parts.forEach(p=>{
+        ctx.font =
+            (p.bold?'bold ':'') +
+            (p.italic?'italic ':'') +
+            size +
+            'px ' +
+            fontName;
+
         totalW += ctx.measureText(p.text).width;
     });
 
-    // 시작 x 계산
-    let curX = align==='center' ? x - totalW/2 : align==='right' ? x - totalW : x;
 
-    // 핵심: 개별 파트는 항상 left 기준으로 그려야 함
-    const savedAlign = ctx.textAlign;
-    ctx.textAlign = 'left';
+    let curX;
 
-    parts.forEach(p => {
-        ctx.font = (p.bold?'bold ':'')+(p.italic?'italic ':'')+size+'px '+fontName;
-        if (p.code) {
+    if(align==='center'){
+        curX = x - totalW / 2;
+    }
+    else if(align==='right'){
+        curX = x - totalW;
+    }
+    else{
+        curX = x;
+    }
+
+
+    ctx.textAlign='left';
+
+
+    parts.forEach(p=>{
+
+        ctx.font =
+            (p.bold?'bold ':'') +
+            (p.italic?'italic ':'') +
+            size +
+            'px ' +
+            fontName;
+
+
+        if(p.code){
             const w = ctx.measureText(p.text).width;
-            ctx.save(); ctx.globalAlpha=0.15; ctx.fillRect(curX-2, y-size+2, w+4, size+2); ctx.restore();
+
+            ctx.save();
+            ctx.globalAlpha=0.15;
+            ctx.fillRect(
+                curX-2,
+                y-size+2,
+                w+4,
+                size+2
+            );
+            ctx.restore();
         }
-        ctx.fillText(p.text, curX, y);
+
+
+        ctx.fillText(
+            p.text,
+            curX,
+            y
+        );
+
         curX += ctx.measureText(p.text).width;
     });
 
-    ctx.textAlign = savedAlign;
-    ctx.font = baseFont;
-}
 
+    ctx.textAlign='left';
+    ctx.font=baseFont;
+}
