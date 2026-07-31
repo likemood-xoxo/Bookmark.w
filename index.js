@@ -492,33 +492,86 @@ function wrapText(ctx, text, maxW) {
     const lines = [];
     let line = '';
 
-    // 스타일 기호 제거한 실제 폭 계산
-    function width(str) {
-        const clean = str
-            .replace(/\*\*(.*?)\*\*/g, '$1')
-            .replace(/\*(.*?)\*/g, '$1')
-            .replace(/`(.*?)`/g, '$1');
+    // 스타일 포함 폭 계산
+    function measure(str) {
+        const parts = [];
+        const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|[^*`]+)/g;
+        let m;
 
-        return ctx.measureText(clean).width;
+        while ((m = re.exec(str)) !== null) {
+            if (m[2]) parts.push({text:m[2], bold:true});
+            else if (m[3]) parts.push({text:m[3], italic:true});
+            else if (m[4]) parts.push({text:m[4]});
+            else parts.push({text:m[0]});
+        }
+
+        let w = 0;
+
+        const sizeMatch = ctx.font.match(/(\d+)px/);
+        const size = sizeMatch ? sizeMatch[1] : 18;
+        const font = ctx.font.replace(/^[\d.]+px\s*/, '');
+
+        parts.forEach(p=>{
+            ctx.font =
+                (p.bold ? 'bold ' : '') +
+                (p.italic ? 'italic ' : '') +
+                size +
+                'px ' +
+                font;
+
+            w += ctx.measureText(p.text).width;
+        });
+
+        return w;
     }
 
-    // 공백 기준 분리
-    const words = text.split(/(\s+)/);
 
-    words.forEach(word => {
-        const test = line + word;
+    // 스타일 기호 유지하면서 단어 단위 분해
+    const words = text.match(/(\*\*.*?\*\*|\*.*?\*|`.*?`|\S+|\s+)/g) || [];
 
-        if (width(test) > maxW && line.trim()) {
-            lines.push(line.trim());
-            line = word.trimStart();
+
+    words.forEach(word=>{
+
+        // 긴 스타일 문장은 내부 분해
+        if(
+            (word.startsWith('*') && word.endsWith('*')) ||
+            (word.startsWith('**') && word.endsWith('**'))
+        ){
+            const mark = word.startsWith('**') ? '**' : '*';
+            const inner = word.slice(mark.length,-mark.length);
+
+            const innerWords = inner.split(/(\s+)/);
+
+            innerWords.forEach(w=>{
+                if(!w) return;
+
+                const styled = mark + w + mark;
+                const test = line ? line + ' ' + styled : styled;
+
+                if(measure(test) > maxW && line.trim()){
+                    lines.push(line.trim());
+                    line = styled;
+                } else {
+                    line = test;
+                }
+            });
+
         } else {
-            line = test;
+
+            const test = line + word;
+
+            if(measure(test) > maxW && line.trim()){
+                lines.push(line.trim());
+                line = word.trimStart();
+            } else {
+                line = test;
+            }
         }
+
     });
 
-    if (line.trim()) {
-        lines.push(line.trim());
-    }
+
+    if(line.trim()) lines.push(line.trim());
 
     return lines;
 }
