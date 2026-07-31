@@ -489,47 +489,39 @@ function htmlToMarkdown(html){
     return div.innerText;
 }
 function wrapText(ctx, text, maxW) {
-    const tokens = text.match(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\S+|\s+)/g) || [];
-
     const lines = [];
-    let cur = '';
+    let line = '';
 
-    const measure = (str) => {
-        const parts = [];
-        const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|[^*`]+)/g;
-        let m;
+    // 스타일 기호 제거한 실제 폭 계산
+    function width(str) {
+        const clean = str
+            .replace(/\*\*(.*?)\*\*/g, '$1')
+            .replace(/\*(.*?)\*/g, '$1')
+            .replace(/`(.*?)`/g, '$1');
 
-        while ((m = re.exec(str)) !== null) {
-            if (m[2]) {
-                parts.push({ text:m[2], bold:true });
-            } else if (m[3]) {
-                parts.push({ text:m[3], italic:true });
-            } else if (m[4]) {
-                parts.push({ text:m[4] });
-            } else {
-                parts.push({ text:m[0] });
-            }
+        return ctx.measureText(clean).width;
+    }
+
+    // 공백 기준 분리
+    const words = text.split(/(\s+)/);
+
+    words.forEach(word => {
+        const test = line + word;
+
+        if (width(test) > maxW && line.trim()) {
+            lines.push(line.trim());
+            line = word.trimStart();
+        } else {
+            line = test;
         }
+    });
 
-        let w = 0;
+    if (line.trim()) {
+        lines.push(line.trim());
+    }
 
-        const sizeMatch = ctx.font.match(/(\d+)px/);
-        const size = sizeMatch ? sizeMatch[1] : 18;
-        const font = ctx.font.replace(/^[\d.]+px\s*/,'');
-
-        parts.forEach(p=>{
-            ctx.font =
-                (p.bold ? 'bold ' : '') +
-                (p.italic ? 'italic ' : '') +
-                size +
-                'px ' +
-                font;
-
-            w += ctx.measureText(p.text).width;
-        });
-
-        return w;
-    };
+    return lines;
+}
 
 
     tokens.forEach(token=>{
