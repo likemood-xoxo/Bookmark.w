@@ -282,7 +282,9 @@ function openModal(text, charName) {
         const a=document.createElement('a');
         a.download=`bookmark_${Date.now()}.png`;
         a.href=canvas.toDataURL('image/png');
-        a.click();
+document.body.appendChild(a);
+a.click();
+a.remove();
         // 저장 완료 토스트
         const toast=document.createElement('div');
         Object.assign(toast.style,{
@@ -295,7 +297,7 @@ function openModal(text, charName) {
             transition:'opacity 0.4s',
         });
         toast.textContent = '✅ 저장 완료!';
-        document.documentElement.appendChild(toast);
+        document.body.appendChild(toast);
         setTimeout(()=>{ toast.style.opacity='0'; setTimeout(()=>toast.remove(),400); }, 1800);
     };
     dlBtn.onclick=dl; dlBtn.addEventListener('touchend',e=>{e.preventDefault();dl();});
