@@ -529,53 +529,60 @@ function wrapText(ctx, text, maxW) {
     // 스타일 기호 유지하면서 단어 단위 분해
     const words = text.match(/(\*\*.*?\*\*|\*.*?\*|`.*?`|\S+|\s+)/g) || [];
 
+    words.forEach(word => {
 
-    words.forEach(word=>{
+        // 긴 스타일 문장은 내부 단어 단위로 줄바꿈 가능하게 처리
+        if (
+            (word.startsWith('**') && word.endsWith('**')) ||
+            (word.startsWith('*') && word.endsWith('*'))
+        ) {
 
-        // 긴 스타일 문장은 내부 분해
-        if(
-            (word.startsWith('*') && word.endsWith('*')) ||
-            (word.startsWith('**') && word.endsWith('**'))
-        ){
             const mark = word.startsWith('**') ? '**' : '*';
-            const inner = word.slice(mark.length,-mark.length);
+            const inner = word.slice(mark.length, -mark.length);
 
             const innerWords = inner.split(/(\s+)/);
 
-            innerWords.forEach(w=>{
-                if(!w) return;
+            innerWords.forEach(w => {
+
+                if (!w) return;
+
+                // 공백은 그대로 유지
+                if (/^\s+$/.test(w)) {
+                    line += w;
+                    return;
+                }
 
                 const styled = mark + w + mark;
-                const test = line ? line + ' ' + styled : styled;
+                const test = line + styled;
 
-                if(measure(test) > maxW && line.trim()){
+                if (measure(test) > maxW && line.trim()) {
                     lines.push(line.trim());
                     line = styled;
                 } else {
                     line = test;
                 }
+
             });
 
         } else {
 
             const test = line + word;
 
-            if(measure(test) > maxW && line.trim()){
+            if (measure(test) > maxW && line.trim()) {
                 lines.push(line.trim());
                 line = word.trimStart();
             } else {
                 line = test;
             }
+
         }
 
     });
 
-
-    if(line.trim()) lines.push(line.trim());
+    if (line.trim()) lines.push(line.trim());
 
     return lines;
 }
-
 
 // 마크다운 스타일 적용해서 한 줄 그리기
 function drawStyledLine(ctx, line, x, y, baseFont, align) {
