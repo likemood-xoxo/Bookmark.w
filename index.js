@@ -302,20 +302,7 @@ function openModal(text, charName) {
     }, 'image/png');
 };
 a.remove();
-        // 저장 완료 토스트
-        const toast=document.createElement('div');
-        Object.assign(toast.style,{
-            position:'fixed', bottom:'80px', left:'50%', transform:'translateX(-50%)',
-            background:'rgba(30,26,20,0.95)', border:'1px solid rgba(201,169,110,0.5)',
-            color:'#f5e9c9', borderRadius:'20px', padding:'10px 22px',
-            fontSize:'14px', zIndex:'2147483647', pointerEvents:'none',
-            boxShadow:'0 4px 20px rgba(0,0,0,0.5)',
-            fontFamily:'sans-serif', whiteSpace:'nowrap',
-            transition:'opacity 0.4s',
-        });
-        toast.textContent = '✅ 저장 완료!';
-        document.body.appendChild(toast);
-        setTimeout(()=>{ toast.style.opacity='0'; setTimeout(()=>toast.remove(),400); }, 1800);
+        toastr.success('🔖 저장 완료!');
     };
     dlBtn.onclick = dl;
 
