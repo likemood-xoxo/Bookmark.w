@@ -579,6 +579,7 @@ function wrapText(ctx, text, maxW) {
 
 // 마크다운 스타일 적용해서 한 줄 그리기
 function drawStyledLine(ctx, line, x, y, baseFont, align) {
+    line = line.replace(/\s{2,}/g, ' ');
     const parts = [];
     const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|[^*`]+)/g;
 
