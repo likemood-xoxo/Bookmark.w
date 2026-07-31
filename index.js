@@ -545,8 +545,14 @@ function wrapText(ctx, text, maxW) {
             innerWords.forEach(w=>{
                 if(!w) return;
 
+                // 공백은 그대로 유지
+                if(/^\s+$/.test(w)){
+                    line += w;
+                    return;
+                }
+
                 const styled = mark + w + mark;
-                const test = line ? line + ' ' + styled : styled;
+                const test = line + styled;
 
                 if(measure(test) > maxW && line.trim()){
                     lines.push(line.trim());
@@ -575,6 +581,7 @@ function wrapText(ctx, text, maxW) {
 
     return lines;
 }
+
 // 마크다운 스타일 적용해서 한 줄 그리기
 function drawStyledLine(ctx, line, x, y, baseFont, align) {
     line = line.replace(/\s{2,}/g, ' ');
