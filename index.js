@@ -422,7 +422,6 @@ function wrapText(ctx,text,maxW){
 
 // 마크다운 스타일 적용해서 한 줄 그리기
 function drawStyledLine(ctx, line, x, y, baseFont, align) {
-    // **bold**, *italic*, `code` 파싱
     const parts = [];
     const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|[^*`]+)/g;
     let m;
@@ -432,26 +431,35 @@ function drawStyledLine(ctx, line, x, y, baseFont, align) {
         else if (m[4]) parts.push({ text: m[4], bold: false, italic: false, code: true });
         else parts.push({ text: m[0], bold: false, italic: false });
     }
-    // 전체 너비 계산
     const sizeMatch = baseFont.match(/(\d+)px/);
     const size = sizeMatch ? parseInt(sizeMatch[1]) : 18;
     const fontName = baseFont.replace(/^[\d.]+px\s*/, '');
+
+    // 전체 너비 계산
     let totalW = 0;
     parts.forEach(p => {
-        const f = (p.bold ? 'bold ' : '') + (p.italic ? 'italic ' : '') + size + 'px ' + fontName;
-        ctx.font = f; totalW += ctx.measureText(p.text).width;
+        ctx.font = (p.bold?'bold ':'')+(p.italic?'italic ':'')+size+'px '+fontName;
+        totalW += ctx.measureText(p.text).width;
     });
+
+    // 시작 x 계산
     let curX = align==='center' ? x - totalW/2 : align==='right' ? x - totalW : x;
+
+    // 핵심: 개별 파트는 항상 left 기준으로 그려야 함
+    const savedAlign = ctx.textAlign;
+    ctx.textAlign = 'left';
+
     parts.forEach(p => {
-        const f = (p.bold ? 'bold ' : '') + (p.italic ? 'italic ' : '') + size + 'px ' + fontName;
-        ctx.font = f;
+        ctx.font = (p.bold?'bold ':'')+(p.italic?'italic ':'')+size+'px '+fontName;
         if (p.code) {
-            // 코드: 배경 박스
             const w = ctx.measureText(p.text).width;
             ctx.save(); ctx.globalAlpha=0.15; ctx.fillRect(curX-2, y-size+2, w+4, size+2); ctx.restore();
         }
         ctx.fillText(p.text, curX, y);
         curX += ctx.measureText(p.text).width;
     });
-    ctx.font = baseFont; // 리셋
+
+    ctx.textAlign = savedAlign;
+    ctx.font = baseFont;
 }
+
