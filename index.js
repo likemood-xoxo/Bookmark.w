@@ -286,13 +286,6 @@ function openModal(text, charName) {
             {type:'image/png'}
         );
 
-        if (navigator.canShare && navigator.canShare({files:[file]})) {
-            await navigator.share({
-                files:[file]
-            });
-            return;
-        }
-
         const a=document.createElement('a');
         a.download=file.name;
         a.href=URL.createObjectURL(blob);
