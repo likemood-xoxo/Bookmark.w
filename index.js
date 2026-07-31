@@ -524,26 +524,6 @@ function wrapText(ctx, text, maxW) {
 }
 
 
-    tokens.forEach(token=>{
-
-        const test = cur + token;
-
-        if(measure(test) > maxW && cur.trim()) {
-            lines.push(cur.trim());
-            cur = token.trimStart();
-        }
-        else {
-            cur = test;
-        }
-
-    });
-
-
-    if(cur.trim()) lines.push(cur.trim());
-
-    return lines;
-}
-
 // 마크다운 스타일 적용해서 한 줄 그리기
 function drawStyledLine(ctx, line, x, y, baseFont, align) {
     const parts = [];
