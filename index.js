@@ -40,7 +40,7 @@ function injectBtn() {
     document.documentElement.appendChild(selBtn);
 }
 
-let selText = '', selChar = '', selTimer = null, hideTimer = null;
+let selText = '', selHtml = '', selChar = '', selTimer = null, hideTimer = null;
 
 function attachListener() {
     document.addEventListener('selectionchange', () => {
@@ -76,7 +76,14 @@ function tryShow() {
     // 이모지/특수문자 제거하고 텍스트만 추출
     const rawName = mes ? (mes.querySelector('.name_text')?.textContent?.trim() || mes.getAttribute('ch_name') || '') : '';
     selChar = rawName.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FEFF}]/gu, '').trim();
-    selText = t;
+    const range = sel.getRangeAt(0);
+const clone = range.cloneContents();
+
+const temp = document.createElement('div');
+temp.appendChild(clone);
+
+selHtml = temp.innerHTML;
+selText = t;
     let x = window.innerWidth/2, y = 300;
     try { const r = sel.getRangeAt(0).getClientRects(); if (r.length) { x=r[r.length-1].right; y=r[r.length-1].bottom; } } catch(_){}
     const sz = 28;
@@ -99,7 +106,10 @@ selBtn.style.top = btnY + 'px';
 
 function trigger() {
     selBtn.style.display = 'none';
-    openModal(mask(selText), mask(selChar));
+    openModal(
+        htmlToMarkdown(selHtml || selText),
+        mask(selChar)
+    );
 }
 
 // -- Unsplash --
@@ -326,6 +336,7 @@ const TCOLORS = {
 };
 
 function renderCard(canvas, text, charName) {
+    text = htmlToMarkdown(text);
     const bg = S().bgStyle;
     const theme = THEMES[bg] || THEMES.parchment;
     const tc = TCOLORS[S().textColor] || TCOLORS.dark;
@@ -420,6 +431,36 @@ function drawBorder(ctx,t,W,H){
 function drawRule(ctx,x1,y,x2,c){ctx.save();ctx.strokeStyle=c;ctx.lineWidth=0.7;ctx.globalAlpha=0.55;ctx.beginPath();ctx.moveTo(x1,y);ctx.lineTo(x2,y);ctx.stroke();ctx.restore();}
 function drawOrnament(ctx,cx,cy,c,flip){ctx.save();ctx.fillStyle=c;ctx.globalAlpha=0.8;ctx.font=flip?'18px serif':'20px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(flip?'\u2767':'\u2766',cx,cy);ctx.restore();}
 function addNoise(ctx,W,H,a){ctx.save();ctx.globalAlpha=a;for(let y=0;y<H;y+=2)for(let x=0;x<W;x+=2){const v=Math.random()>0.5?255:0;ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(x,y,1,1);}ctx.restore();}
+function htmlToMarkdown(html){
+    const div=document.createElement('div');
+    div.innerHTML=html;
+
+    div.querySelectorAll('strong,b').forEach(e=>{
+        e.replaceWith(
+            document.createTextNode(
+                '**' + e.textContent + '**'
+            )
+        );
+    });
+
+    div.querySelectorAll('em,i').forEach(e=>{
+        e.replaceWith(
+            document.createTextNode(
+                '*' + e.textContent + '*'
+            )
+        );
+    });
+
+    div.querySelectorAll('code').forEach(e=>{
+        e.replaceWith(
+            document.createTextNode(
+                '`' + e.textContent + '`'
+            )
+        );
+    });
+
+    return div.innerText;
+}
 function wrapText(ctx,text,maxW){
     const words = text.split(' ');
     const lines=[];
