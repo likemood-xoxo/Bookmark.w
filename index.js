@@ -279,11 +279,8 @@ function openModal(text, charName) {
     // PNG 저장
     const dlBtn = mkBtn('⬇ PNG 저장',{background:'linear-gradient(135deg,#3b2a1a,#5a3e20)',color:'#f5e9c9',border:'1px solid #c9a96e',borderRadius:'20px',padding:'10px 28px',fontSize:'14px',flexShrink:'0'});
     const dl=()=>{
-        const a=document.createElement('a');
-        a.download=`bookmark_${Date.now()}.png`;
-        a.href=canvas.toDataURL('image/png');
-document.body.appendChild(a);
-a.click();
+    const url = canvas.toDataURL('image/png');
+    window.open(url, '_blank');
 a.remove();
         // 저장 완료 토스트
         const toast=document.createElement('div');
@@ -300,7 +297,7 @@ a.remove();
         document.body.appendChild(toast);
         setTimeout(()=>{ toast.style.opacity='0'; setTimeout(()=>toast.remove(),400); }, 1800);
     };
-    dlBtn.onclick=dl; dlBtn.addEventListener('touchend',e=>{e.preventDefault();dl();});
+    dlBtn.onclick = dl;
 
     card.appendChild(closeBtn); card.appendChild(canvas); card.appendChild(styleRow);
     card.appendChild(orientRow); card.appendChild(optRow); card.appendChild(sizeRow); card.appendChild(bottomRow); card.appendChild(pPanel); card.appendChild(dlBtn);
