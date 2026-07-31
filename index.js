@@ -296,12 +296,37 @@ function openModal(text, charName) {
             {type:'image/png'}
         );
 
-        const a=document.createElement('a');
-        a.download=file.name;
-        a.href=URL.createObjectURL(blob);
-        a.click();
-        a.remove();
+        // iOS Safari / PWA 대응
+if (
+    navigator.share &&
+    navigator.canShare &&
+    navigator.canShare({files:[file]})
+) {
+    try {
+        await navigator.share({
+            files:[file],
+            title:'Bookmark'
+        });
         toastr.success('🔖 저장 완료!');
+        return;
+    } catch(e) {
+        if(e.name === 'AbortError') return;
+    }
+}
+
+// 기존 다운로드 유지 (갤럭시 / PC)
+const a=document.createElement('a');
+a.download=file.name;
+a.href=URL.createObjectURL(blob);
+document.body.appendChild(a);
+a.click();
+
+setTimeout(()=>{
+    URL.revokeObjectURL(a.href);
+    a.remove();
+},1000);
+
+toastr.success('🔖 저장 완료!');
     }, 'image/png');
 };
     dlBtn.onclick = dl;
