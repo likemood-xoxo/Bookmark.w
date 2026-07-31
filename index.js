@@ -563,7 +563,9 @@ function drawStyledLine(ctx, line, x, y, baseFont, align) {
 
     const sizeMatch = baseFont.match(/(\d+)px/);
     const size = sizeMatch ? parseInt(sizeMatch[1]) : 18;
-    const fontName = baseFont.replace(/^[\d.]+px\s*/,'');
+    const fontName = baseFont
+    .replace(/^[\d.]+px\s*/, '')
+    .replace(/["']/g, '');
 
 
     // 실제 출력 폭 계산
