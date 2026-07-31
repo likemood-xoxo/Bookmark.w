@@ -545,14 +545,8 @@ function wrapText(ctx, text, maxW) {
             innerWords.forEach(w=>{
                 if(!w) return;
 
-                // 공백은 그대로 유지
-                if(/^\s+$/.test(w)){
-                    line += w;
-                    return;
-                }
-
                 const styled = mark + w + mark;
-                const test = line + styled;
+                const test = line ? line + ' ' + styled : styled;
 
                 if(measure(test) > maxW && line.trim()){
                     lines.push(line.trim());
