@@ -490,103 +490,91 @@ function htmlToMarkdown(html){
 }
 function wrapText(ctx, text, maxW) {
     const lines = [];
-    let current = '';
+    let line = '';
 
+    // 스타일 포함 폭 계산
     function measure(str) {
         const parts = [];
         const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|[^*`]+)/g;
         let m;
 
         while ((m = re.exec(str)) !== null) {
-            if (m[2]) {
-                parts.push({
-                    text: m[2],
-                    bold: true,
-                    italic: false
-                });
-            } 
-            else if (m[3]) {
-                parts.push({
-                    text: m[3],
-                    bold: false,
-                    italic: true
-                });
-            } 
-            else if (m[4]) {
-                parts.push({
-                    text: m[4],
-                    code: true
-                });
-            } 
-            else {
-                parts.push({
-                    text: m[0]
-                });
-            }
+            if (m[2]) parts.push({text:m[2], bold:true});
+            else if (m[3]) parts.push({text:m[3], italic:true});
+            else if (m[4]) parts.push({text:m[4]});
+            else parts.push({text:m[0]});
         }
 
-
-        let width = 0;
+        let w = 0;
 
         const sizeMatch = ctx.font.match(/(\d+)px/);
         const size = sizeMatch ? sizeMatch[1] : 18;
+        const font = ctx.font.replace(/^[\d.]+px\s*/, '');
 
-        const fontName = ctx.font
-            .replace(/^[\d.]+px\s*/, '');
-
-
-        parts.forEach(p => {
-
+        parts.forEach(p=>{
             ctx.font =
                 (p.bold ? 'bold ' : '') +
                 (p.italic ? 'italic ' : '') +
                 size +
                 'px ' +
-                fontName;
+                font;
 
-            width += ctx.measureText(p.text).width;
-
+            w += ctx.measureText(p.text).width;
         });
 
-        return width;
+        return w;
     }
 
 
-    // 스타일 단위 / 일반 단어 / 공백 유지
-    const tokens = text.match(
-        /(\*\*.*?\*\*|\*.*?\*|`.*?`|\s+|[^\s]+)/g
-    ) || [];
+    // 스타일 기호 유지하면서 단어 단위 분해
+    const words = text.match(/(\*\*.*?\*\*|\*.*?\*|`.*?`|\S+|\s+)/g) || [];
 
 
-    tokens.forEach(token => {
+    words.forEach(word=>{
 
-        const test = current + token;
+        // 긴 스타일 문장은 내부 분해
+        if(
+            (word.startsWith('*') && word.endsWith('*')) ||
+            (word.startsWith('**') && word.endsWith('**'))
+        ){
+            const mark = word.startsWith('**') ? '**' : '*';
+            const inner = word.slice(mark.length,-mark.length);
 
+            const innerWords = inner.split(/(\s+)/);
 
-        if (measure(test) <= maxW || !current) {
+            innerWords.forEach(w=>{
+                if(!w) return;
 
-            current = test;
+                const styled = mark + w + mark;
+                const test = line ? line + ' ' + styled : styled;
 
-        } 
-        else {
+                if(measure(test) > maxW && line.trim()){
+                    lines.push(line.trim());
+                    line = styled;
+                } else {
+                    line = test;
+                }
+            });
 
-            lines.push(current.trimEnd());
+        } else {
 
-            current = token.trimStart();
+            const test = line + word;
 
+            if(measure(test) > maxW && line.trim()){
+                lines.push(line.trim());
+                line = word.trimStart();
+            } else {
+                line = test;
+            }
         }
 
     });
 
 
-    if (current.trim()) {
-        lines.push(current.trim());
-    }
-
+    if(line.trim()) lines.push(line.trim());
 
     return lines;
 }
-
 // 마크다운 스타일 적용해서 한 줄 그리기
 function drawStyledLine(ctx, line, x, y, baseFont, align) {
     line = line.replace(/\s{2,}/g, ' ');
