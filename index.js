@@ -374,26 +374,62 @@ function renderCard(canvas, text, charName) {
 
     const isLand = S().orientation==='landscape';
     const W = isLand ? 960 : 720;
-    const H = isLand ? 720 : 960;
+    const baseH = isLand ? 720 : 960; // 기본(최소) 높이 -> 짧은 글은 정확히 이 비율 유지
     const PAD = 64;
-    canvas.width=W; canvas.height=H;
-    const ctx=canvas.getContext('2d');
 
-    // 폰트 크기 자동 조정 (22px~13px)
     const paras = text.split(/\n\n|\n/).map(p=>p.trim()).filter(Boolean);
     const manualFs = S().fontSize || 0;
-    let fs=22, lh=38, pg=22;
-    if (manualFs >= 8) {
-        fs=manualFs; lh=Math.round(fs*1.72); pg=Math.round(fs*1.0);
-    } else
-    for (let f=22; f>=13; f--) {
-        ctx.font=`${f}px ${font}`;
-        const l=Math.round(f*1.72), g=Math.round(f*1.0);
-        let tot=0;
-        paras.forEach((p,i)=>{ tot+=wrapText(ctx,p,W-PAD*2).length*l; if(i<paras.length-1)tot+=g; });
-        if (tot<=H-PAD*2-100) { fs=f; lh=l; pg=g; break; }
-        if (f===13) { fs=13; lh=Math.round(13*1.72); pg=Math.round(13*1.0); }
+
+    // -- 상/하단 고정 장식 영역 크기 --
+    const ornY = PAD + 20;
+    const topFixed = ornY + 52;      // 테두리~본문 시작 전까지 (상단 고정)
+    const bottomFixed = PAD + 26;    // 룰선~테두리까지 (H 기준 상대 위치라 H가 늘어도 자동 유지됨)
+    const GAP = 34;                   // 본문(화자명 포함)과 하단 장식 사이 여백
+    const nameBlock = (S().showCharName && charName) ? 54 : 0; // 화자명 줄 예상 높이
+
+    // 실제 캔버스 크기를 정하기 전에 폰트/높이부터 측정
+    const measCtx = document.createElement('canvas').getContext('2d');
+    function measureAt(f) {
+        const l = Math.round(f*1.72), g = Math.round(f*1.0);
+        let tot = 0;
+        paras.forEach((p,i)=>{
+            const lines = wrapTokens(measCtx, tokenizeStyled(p), W-PAD*2, f, font);
+            tot += lines.length*l;
+            if(i<paras.length-1) tot+=g;
+        });
+        return { tot, l, g };
     }
+
+    let fs, lh, pg, totH;
+    if (manualFs >= 8) {
+        const r = measureAt(manualFs);
+        fs = manualFs; lh = r.l; pg = r.g; totH = r.tot;
+    } else {
+        const avail = baseH - topFixed - bottomFixed - GAP - nameBlock;
+        let picked = null;
+        for (let f=22; f>=13; f--) {
+            const r = measureAt(f);
+            if (r.tot <= avail) { picked = { f, ...r }; break; }
+        }
+        // 13px로 줄여도 안 들어가면: 폰트는 13px로 고정하고 아래에서 캔버스 높이를 늘림
+        if (!picked) picked = { f:13, ...measureAt(13) };
+        fs = picked.f; lh = picked.l; pg = picked.g; totH = picked.tot;
+    }
+
+    // 기본 높이 안에 안 들어가면, 상/하단 장식 위치는 그대로 두고 본문 박스만큼만 세로로 확장
+    // (극단적으로 긴 텍스트에 대비해 기본 높이의 3배로 상한을 둠)
+    const neededH = topFixed + totH + nameBlock + GAP + bottomFixed;
+    const H = Math.max(baseH, Math.min(Math.round(neededH), baseH * 3));
+
+    // -- 고화질 렌더링: 논리 크기(W,H)는 유지하고 실제 픽셀 밀도만 올림 --
+    const SCALE = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
+    canvas.width = Math.round(W * SCALE);
+    canvas.height = Math.round(H * SCALE);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
     const bodyFont=`${fs}px ${font}`;
     const metaFont=`${Math.max(11,fs-8)}px ${font}`;
 
@@ -424,17 +460,19 @@ function drawContent(ctx,W,H,PAD,lh,pg,paras,charName,bodyFont,metaFont,tc,align
     drawOrnament(ctx,W/2,ornY,theme.ornament,false);
     drawRule(ctx,PAD+24,ornY+22,W-PAD-24,theme.rule);
 
-    ctx.font=bodyFont;
-    const paraLines=paras.map(p=>wrapText(ctx,p,W-PAD*2));
+    const sizeMatch = bodyFont.match(/(\d+)px/);
+    const size = sizeMatch ? parseInt(sizeMatch[1]) : 18;
+    const fontName = bodyFont.replace(/^[\d.]+px\s*/, '');
+
+    const paraLines = paras.map(p => wrapTokens(ctx, tokenizeStyled(p), W-PAD*2, size, fontName));
     let totH=0; paraLines.forEach((l,i)=>{ totH+=l.length*lh; if(i<paraLines.length-1)totH+=pg; });
     let curY=Math.max(ornY+52,(H-totH)/2);
 
     const tx=align==='left'?PAD+8:align==='right'?W-PAD-8:W/2;
-    ctx.textAlign=align==='left'?'left':align==='right'?'right':'center';
-    ctx.fillStyle=tc.text; ctx.font=bodyFont;
+    ctx.fillStyle=tc.text;
 
     paraLines.forEach((lines,pi)=>{
-        lines.forEach(line=>{ drawStyledLine(ctx,line,tx,curY,bodyFont,align); curY+=lh; });
+        lines.forEach(tokens=>{ drawTokenLine(ctx,tokens,tx,curY,size,fontName,align); curY+=lh; });
         if(pi<paraLines.length-1) curY+=pg;
     });
 
@@ -488,205 +526,93 @@ function htmlToMarkdown(html){
 
     return div.innerText;
 }
-function wrapText(ctx, text, maxW) {
-    const lines = [];
-    let line = '';
-
-    // 스타일 포함 폭 계산
-    function measure(str) {
-        const parts = [];
-        const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|[^*`]+)/g;
-        let m;
-
-        while ((m = re.exec(str)) !== null) {
-            if (m[2]) parts.push({text:m[2], bold:true});
-            else if (m[3]) parts.push({text:m[3], italic:true});
-            else if (m[4]) parts.push({text:m[4]});
-            else parts.push({text:m[0]});
-        }
-
-        let w = 0;
-
-        const sizeMatch = ctx.font.match(/(\d+)px/);
-        const size = sizeMatch ? sizeMatch[1] : 18;
-        const font = ctx.font.replace(/^[\d.]+px\s*/, '');
-
-        parts.forEach(p=>{
-            ctx.font =
-                (p.bold ? 'bold ' : '') +
-                (p.italic ? 'italic ' : '') +
-                size +
-                'px ' +
-                font;
-
-            w += ctx.measureText(p.text).width;
-        });
-
-        return w;
+// 텍스트를 **볼드**/*이탤릭*/`코드` 스타일이 붙은 토큰 배열로 분해.
+// 공백은 원문에 있는 만큼만(연속 공백은 1칸으로 정규화) 별도 토큰으로 유지 —
+// 예전처럼 마크 문자를 다시 조립했다가 재파싱하지 않으므로 공백이 중복되지 않음.
+function tokenizeStyled(text) {
+    const runs = [];
+    const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|[^*`]+)/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        if (m[2]) runs.push({ text:m[2], bold:true,  italic:false, code:false });
+        else if (m[3]) runs.push({ text:m[3], bold:false, italic:true,  code:false });
+        else if (m[4]) runs.push({ text:m[4], bold:false, italic:false, code:true  });
+        else runs.push({ text:m[0], bold:false, italic:false, code:false });
     }
 
-
-    // 스타일 기호 유지하면서 단어 단위 분해
-    const words = text.match(/(\*\*.*?\*\*|\*.*?\*|`.*?`|\S+|\s+)/g) || [];
-
-
-    words.forEach(word=>{
-
-        // 긴 스타일 문장은 내부 분해
-        if(
-            (word.startsWith('*') && word.endsWith('*')) ||
-            (word.startsWith('**') && word.endsWith('**'))
-        ){
-            const mark = word.startsWith('**') ? '**' : '*';
-            const inner = word.slice(mark.length,-mark.length);
-
-            const innerWords = inner.split(/(\s+)/);
-
-            innerWords.forEach(w=>{
-                if(!w) return;
-
-                const styled = mark + w + mark;
-                const test = line ? line + ' ' + styled : styled;
-
-                if(measure(test) > maxW && line.trim()){
-                    lines.push(line.trim());
-                    line = styled;
-                } else {
-                    line = test;
-                }
+    const tokens = [];
+    runs.forEach(r => {
+        const parts = r.text.split(/(\s+)/).filter(p => p.length > 0);
+        parts.forEach(p => {
+            const isSpace = /^\s+$/.test(p);
+            tokens.push({
+                text: isSpace ? ' ' : p, // 연속 공백은 1칸으로 정규화
+                bold: r.bold, italic: r.italic, code: r.code,
+                space: isSpace,
             });
+        });
+    });
+    return tokens;
+}
 
-        } else {
+function tokenWidth(ctx, tok, size, fontName) {
+    ctx.font = (tok.bold?'bold ':'') + (tok.italic?'italic ':'') + size + 'px ' + fontName;
+    return ctx.measureText(tok.text).width;
+}
 
-            const test = line + word;
+// 토큰 배열을 주어진 폭(maxW)에 맞춰 줄 단위로 분해
+function wrapTokens(ctx, tokens, maxW, size, fontName) {
+    const lines = [];
+    let line = [];
+    let lineW = 0;
 
-            if(measure(test) > maxW && line.trim()){
-                lines.push(line.trim());
-                line = word.trimStart();
-            } else {
-                line = test;
+    tokens.forEach(tok => {
+        if (tok.space && line.length === 0) return; // 줄 맨 앞 공백은 무시
+        const w = tokenWidth(ctx, tok, size, fontName);
+
+        if (line.length > 0 && lineW + w > maxW) {
+            while (line.length && line[line.length-1].space) {
+                lineW -= tokenWidth(ctx, line[line.length-1], size, fontName);
+                line.pop();
             }
+            lines.push(line);
+            line = [];
+            lineW = 0;
+            if (tok.space) return; // 새 줄 시작에 공백 스킵
         }
 
+        line.push(tok);
+        lineW += w;
     });
 
-
-    if(line.trim()) lines.push(line.trim());
-
+    while (line.length && line[line.length-1].space) line.pop();
+    if (line.length) lines.push(line);
     return lines;
 }
 
-// 마크다운 스타일 적용해서 한 줄 그리기
-function drawStyledLine(ctx, line, x, y, baseFont, align) {
-    line = line.replace(/\s{2,}/g, ' ');
-    const parts = [];
-    const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|[^*`]+)/g;
-
-    let m;
-
-    while ((m = re.exec(line)) !== null) {
-        if (m[2]) {
-            parts.push({
-                text:m[2],
-                bold:true,
-                italic:false
-            });
-        } else if (m[3]) {
-            parts.push({
-                text:m[3],
-                bold:false,
-                italic:true
-            });
-        } else if (m[4]) {
-            parts.push({
-                text:m[4],
-                bold:false,
-                italic:false,
-                code:true
-            });
-        } else {
-            parts.push({
-                text:m[0],
-                bold:false,
-                italic:false
-            });
-        }
-    }
-
-
-    const sizeMatch = baseFont.match(/(\d+)px/);
-    const size = sizeMatch ? parseInt(sizeMatch[1]) : 18;
-    const fontName = baseFont
-    .replace(/^[\d.]+px\s*/, '')
-    .replace(/["']/g, '');
-
-
-    // 실제 출력 폭 계산
+// 스타일이 적용된 토큰 한 줄을 캔버스에 그리기
+function drawTokenLine(ctx, tokens, x, y, size, fontName, align) {
     let totalW = 0;
-
-    parts.forEach(p=>{
-        ctx.font =
-            (p.bold?'bold ':'') +
-            (p.italic?'italic ':'') +
-            size +
-            'px ' +
-            fontName;
-
-        totalW += ctx.measureText(p.text).width;
-    });
-
+    tokens.forEach(t => { totalW += tokenWidth(ctx, t, size, fontName); });
 
     let curX;
+    if (align==='center') curX = x - totalW/2;
+    else if (align==='right') curX = x - totalW;
+    else curX = x;
 
-    if(align==='center'){
-        curX = x - totalW / 2;
-    }
-    else if(align==='right'){
-        curX = x - totalW;
-    }
-    else{
-        curX = x;
-    }
-
-
-    ctx.textAlign='left';
-
-
-    parts.forEach(p=>{
-
-        ctx.font =
-            (p.bold?'bold ':'') +
-            (p.italic?'italic ':'') +
-            size +
-            'px ' +
-            fontName;
-
-
-        if(p.code){
-            const w = ctx.measureText(p.text).width;
-
+    ctx.textAlign = 'left';
+    tokens.forEach(t => {
+        ctx.font = (t.bold?'bold ':'') + (t.italic?'italic ':'') + size + 'px ' + fontName;
+        if (t.code) {
+            const w = ctx.measureText(t.text).width;
             ctx.save();
-            ctx.globalAlpha=0.15;
-            ctx.fillRect(
-                curX-2,
-                y-size+2,
-                w+4,
-                size+2
-            );
+            ctx.globalAlpha = 0.15;
+            ctx.fillRect(curX-2, y-size+2, w+4, size+2);
             ctx.restore();
         }
-
-
-        ctx.fillText(
-            p.text,
-            curX,
-            y
-        );
-
-        curX += ctx.measureText(p.text).width;
+        ctx.fillText(t.text, curX, y);
+        curX += ctx.measureText(t.text).width;
     });
-
-
-    ctx.textAlign='left';
-    ctx.font=baseFont;
+    ctx.textAlign = 'left';
 }
+
