@@ -107,7 +107,7 @@ selBtn.style.top = btnY + 'px';
 function trigger() {
     selBtn.style.display = 'none';
     openModal(
-        htmlToMarkdown(selHtml || selText),
+        mask(htmlToMarkdown(selHtml || selText)),
         mask(selChar)
     );
 }
@@ -615,4 +615,3 @@ function drawTokenLine(ctx, tokens, x, y, size, fontName, align) {
     });
     ctx.textAlign = 'left';
 }
-
