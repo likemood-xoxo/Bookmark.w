@@ -40,7 +40,7 @@ function injectBtn() {
     document.documentElement.appendChild(selBtn);
 }
 
-let selText = '', selHtml = '', selChar = '', selTimer = null, hideTimer = null;
+let selText = '', selChar = '', selTimer = null, hideTimer = null;
 
 function attachListener() {
     document.addEventListener('selectionchange', () => {
@@ -72,44 +72,25 @@ function tryShow() {
     const t = sel?.toString().trim() || '';
     if (t.length < 5) { selBtn.style.display = 'none'; return; }
     const node = sel.focusNode || sel.anchorNode;
+    // 채팅창(#chat) 안에서만 버튼 표시
+    const inChat = node?.parentElement?.closest?.('#chat');
+    if (!inChat) { selBtn.style.display = 'none'; return; }
     const mes = node?.parentElement?.closest?.('.mes');
     // 이모지/특수문자 제거하고 텍스트만 추출
     const rawName = mes ? (mes.querySelector('.name_text')?.textContent?.trim() || mes.getAttribute('ch_name') || '') : '';
     selChar = rawName.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FEFF}]/gu, '').trim();
-    const range = sel.getRangeAt(0);
-const clone = range.cloneContents();
-
-const temp = document.createElement('div');
-temp.appendChild(clone);
-
-selHtml = temp.innerHTML;
-selText = t;
+    selText = t;
     let x = window.innerWidth/2, y = 300;
     try { const r = sel.getRangeAt(0).getClientRects(); if (r.length) { x=r[r.length-1].right; y=r[r.length-1].bottom; } } catch(_){}
     const sz = 28;
-    const btnX = Math.min(
-    Math.max(x - sz / 2, 4),
-    window.innerWidth - sz - 4
-);
-
-let btnY = y + 12;
-
-// 아래 공간 부족하면 선택 영역 위에 표시
-if (btnY + sz > window.innerHeight - 8) {
-    btnY = Math.max(8, y - sz - 12);
-}
-
-selBtn.style.left = btnX + 'px';
-selBtn.style.top = btnY + 'px';
+    selBtn.style.left = Math.min(Math.max(x-sz/2,4), window.innerWidth-sz-4)+'px';
+    selBtn.style.top  = Math.min(y+52, window.innerHeight-sz-8)+'px';
     selBtn.style.display = 'block';
 }
 
 function trigger() {
     selBtn.style.display = 'none';
-    openModal(
-        mask(htmlToMarkdown(selHtml || selText)),
-        mask(selChar)
-    );
+    openModal(mask(selText), mask(selChar));
 }
 
 // -- Unsplash --
@@ -289,50 +270,26 @@ function openModal(text, charName) {
     // PNG 저장
     const dlBtn = mkBtn('⬇ PNG 저장',{background:'linear-gradient(135deg,#3b2a1a,#5a3e20)',color:'#f5e9c9',border:'1px solid #c9a96e',borderRadius:'20px',padding:'10px 28px',fontSize:'14px',flexShrink:'0'});
     const dl=()=>{
-    canvas.toBlob(async (blob)=>{
-        const file = new File(
-            [blob],
-            `bookmark_${Date.now()}.png`,
-            {type:'image/png'}
-        );
-
-        // iOS Safari / PWA 대응
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-
-if (
-    isIOS &&
-    navigator.share &&
-    navigator.canShare &&
-    navigator.canShare({files:[file]})
-) {
-    try {
-        await navigator.share({
-            files:[file],
-            title:'Bookmark'
+        const a=document.createElement('a');
+        a.download=`bookmark_${Date.now()}.png`;
+        a.href=canvas.toDataURL('image/png');
+        a.click();
+        // 저장 완료 토스트
+        const toast=document.createElement('div');
+        Object.assign(toast.style,{
+            position:'fixed', bottom:'80px', left:'50%', transform:'translateX(-50%)',
+            background:'rgba(30,26,20,0.95)', border:'1px solid rgba(201,169,110,0.5)',
+            color:'#f5e9c9', borderRadius:'20px', padding:'10px 22px',
+            fontSize:'14px', zIndex:'2147483647', pointerEvents:'none',
+            boxShadow:'0 4px 20px rgba(0,0,0,0.5)',
+            fontFamily:'sans-serif', whiteSpace:'nowrap',
+            transition:'opacity 0.4s',
         });
-        toastr.success('🔖 저장 완료!');
-        return;
-    } catch(e) {
-        if(e.name === 'AbortError') return;
-    }
-}
-
-// 기존 다운로드 유지 (갤럭시 / PC)
-const a=document.createElement('a');
-a.download=file.name;
-a.href=URL.createObjectURL(blob);
-document.body.appendChild(a);
-a.click();
-
-setTimeout(()=>{
-    URL.revokeObjectURL(a.href);
-    a.remove();
-},1000);
-
-toastr.success('🔖 저장 완료!');
-    }, 'image/png');
-};
-    dlBtn.onclick = dl;
+        toast.textContent = '✅ 저장 완료!';
+        document.documentElement.appendChild(toast);
+        setTimeout(()=>{ toast.style.opacity='0'; setTimeout(()=>toast.remove(),400); }, 1800);
+    };
+    dlBtn.onclick=dl; dlBtn.addEventListener('touchend',e=>{e.preventDefault();dl();});
 
     card.appendChild(closeBtn); card.appendChild(canvas); card.appendChild(styleRow);
     card.appendChild(orientRow); card.appendChild(optRow); card.appendChild(sizeRow); card.appendChild(bottomRow); card.appendChild(pPanel); card.appendChild(dlBtn);
@@ -374,62 +331,26 @@ function renderCard(canvas, text, charName) {
 
     const isLand = S().orientation==='landscape';
     const W = isLand ? 960 : 720;
-    const baseH = isLand ? 720 : 960; // 기본(최소) 높이 -> 짧은 글은 정확히 이 비율 유지
+    const H = isLand ? 720 : 960;
     const PAD = 64;
+    canvas.width=W; canvas.height=H;
+    const ctx=canvas.getContext('2d');
 
+    // 폰트 크기 자동 조정 (22px~13px)
     const paras = text.split(/\n\n|\n/).map(p=>p.trim()).filter(Boolean);
     const manualFs = S().fontSize || 0;
-
-    // -- 상/하단 고정 장식 영역 크기 --
-    const ornY = PAD + 20;
-    const topFixed = ornY + 52;      // 테두리~본문 시작 전까지 (상단 고정)
-    const bottomFixed = PAD + 26;    // 룰선~테두리까지 (H 기준 상대 위치라 H가 늘어도 자동 유지됨)
-    const GAP = 34;                   // 본문(화자명 포함)과 하단 장식 사이 여백
-    const nameBlock = (S().showCharName && charName) ? 54 : 0; // 화자명 줄 예상 높이
-
-    // 실제 캔버스 크기를 정하기 전에 폰트/높이부터 측정
-    const measCtx = document.createElement('canvas').getContext('2d');
-    function measureAt(f) {
-        const l = Math.round(f*1.72), g = Math.round(f*1.0);
-        let tot = 0;
-        paras.forEach((p,i)=>{
-            const lines = wrapTokens(measCtx, tokenizeStyled(p), W-PAD*2, f, font);
-            tot += lines.length*l;
-            if(i<paras.length-1) tot+=g;
-        });
-        return { tot, l, g };
-    }
-
-    let fs, lh, pg, totH;
+    let fs=22, lh=38, pg=22;
     if (manualFs >= 8) {
-        const r = measureAt(manualFs);
-        fs = manualFs; lh = r.l; pg = r.g; totH = r.tot;
-    } else {
-        const avail = baseH - topFixed - bottomFixed - GAP - nameBlock;
-        let picked = null;
-        for (let f=22; f>=13; f--) {
-            const r = measureAt(f);
-            if (r.tot <= avail) { picked = { f, ...r }; break; }
-        }
-        // 13px로 줄여도 안 들어가면: 폰트는 13px로 고정하고 아래에서 캔버스 높이를 늘림
-        if (!picked) picked = { f:13, ...measureAt(13) };
-        fs = picked.f; lh = picked.l; pg = picked.g; totH = picked.tot;
+        fs=manualFs; lh=Math.round(fs*1.72); pg=Math.round(fs*1.0);
+    } else
+    for (let f=22; f>=13; f--) {
+        ctx.font=`italic ${f}px ${font}`;
+        const l=Math.round(f*1.72), g=Math.round(f*1.0);
+        let tot=0;
+        paras.forEach((p,i)=>{ tot+=wrapText(ctx,p,W-PAD*2).length*l; if(i<paras.length-1)tot+=g; });
+        if (tot<=H-PAD*2-100) { fs=f; lh=l; pg=g; break; }
+        if (f===13) { fs=13; lh=Math.round(13*1.72); pg=Math.round(13*1.0); }
     }
-
-    // 기본 높이 안에 안 들어가면, 상/하단 장식 위치는 그대로 두고 본문 박스만큼만 세로로 확장
-    // (극단적으로 긴 텍스트에 대비해 기본 높이의 3배로 상한을 둠)
-    const neededH = topFixed + totH + nameBlock + GAP + bottomFixed;
-    const H = Math.max(baseH, Math.min(Math.round(neededH), baseH * 3));
-
-    // -- 고화질 렌더링: 논리 크기(W,H)는 유지하고 실제 픽셀 밀도만 올림 --
-    const SCALE = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
-    canvas.width = Math.round(W * SCALE);
-    canvas.height = Math.round(H * SCALE);
-    const ctx = canvas.getContext('2d');
-    ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-
     const bodyFont=`${fs}px ${font}`;
     const metaFont=`${Math.max(11,fs-8)}px ${font}`;
 
@@ -460,19 +381,17 @@ function drawContent(ctx,W,H,PAD,lh,pg,paras,charName,bodyFont,metaFont,tc,align
     drawOrnament(ctx,W/2,ornY,theme.ornament,false);
     drawRule(ctx,PAD+24,ornY+22,W-PAD-24,theme.rule);
 
-    const sizeMatch = bodyFont.match(/(\d+)px/);
-    const size = sizeMatch ? parseInt(sizeMatch[1]) : 18;
-    const fontName = bodyFont.replace(/^[\d.]+px\s*/, '');
-
-    const paraLines = paras.map(p => wrapTokens(ctx, tokenizeStyled(p), W-PAD*2, size, fontName));
+    ctx.font=bodyFont;
+    const paraLines=paras.map(p=>wrapText(ctx,p,W-PAD*2));
     let totH=0; paraLines.forEach((l,i)=>{ totH+=l.length*lh; if(i<paraLines.length-1)totH+=pg; });
     let curY=Math.max(ornY+52,(H-totH)/2);
 
     const tx=align==='left'?PAD+8:align==='right'?W-PAD-8:W/2;
-    ctx.fillStyle=tc.text;
+    ctx.textAlign=align==='left'?'left':align==='right'?'right':'center';
+    ctx.fillStyle=tc.text; ctx.font=bodyFont;
 
     paraLines.forEach((lines,pi)=>{
-        lines.forEach(tokens=>{ drawTokenLine(ctx,tokens,tx,curY,size,fontName,align); curY+=lh; });
+        lines.forEach(line=>{ drawStyledLine(ctx,line,tx,curY,bodyFont,align); curY+=lh; });
         if(pi<paraLines.length-1) curY+=pg;
     });
 
@@ -496,122 +415,53 @@ function drawBorder(ctx,t,W,H){
 function drawRule(ctx,x1,y,x2,c){ctx.save();ctx.strokeStyle=c;ctx.lineWidth=0.7;ctx.globalAlpha=0.55;ctx.beginPath();ctx.moveTo(x1,y);ctx.lineTo(x2,y);ctx.stroke();ctx.restore();}
 function drawOrnament(ctx,cx,cy,c,flip){ctx.save();ctx.fillStyle=c;ctx.globalAlpha=0.8;ctx.font=flip?'18px serif':'20px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(flip?'\u2767':'\u2766',cx,cy);ctx.restore();}
 function addNoise(ctx,W,H,a){ctx.save();ctx.globalAlpha=a;for(let y=0;y<H;y+=2)for(let x=0;x<W;x+=2){const v=Math.random()>0.5?255:0;ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(x,y,1,1);}ctx.restore();}
-function htmlToMarkdown(html){
-    const div=document.createElement('div');
-    div.innerHTML=html;
-
-    div.querySelectorAll('strong,b').forEach(e=>{
-        e.replaceWith(
-            document.createTextNode(
-                '**' + e.textContent + '**'
-            )
-        );
-    });
-
-    div.querySelectorAll('em,i').forEach(e=>{
-        e.replaceWith(
-            document.createTextNode(
-                '*' + e.textContent + '*'
-            )
-        );
-    });
-
-    div.querySelectorAll('code').forEach(e=>{
-        e.replaceWith(
-            document.createTextNode(
-                '`' + e.textContent + '`'
-            )
-        );
-    });
-
-    return div.innerText;
+function wrapText(ctx,text,maxW){
+    // 마크다운 기호 제거 후 측정 (** * ` 제거)
+    const clean = text.replace(/\*\*(.+?)\*\*/g,'$1').replace(/\*(.+?)\*/g,'$1').replace(/`(.+?)`/g,'$1');
+    const words=clean.split(' ');const lines=[];let cur='';
+    words.forEach(w=>{const t=cur?cur+' '+w:w;if(ctx.measureText(t).width>maxW&&cur){lines.push(cur);cur=w;}else cur=t;});
+    if(cur)lines.push(cur);return lines;
 }
-// 텍스트를 **볼드**/*이탤릭*/`코드` 스타일이 붙은 토큰 배열로 분해.
-// 공백은 원문에 있는 만큼만(연속 공백은 1칸으로 정규화) 별도 토큰으로 유지 —
-// 예전처럼 마크 문자를 다시 조립했다가 재파싱하지 않으므로 공백이 중복되지 않음.
-function tokenizeStyled(text) {
-    const runs = [];
+
+// 마크다운 스타일 적용해서 한 줄 그리기
+function drawStyledLine(ctx, line, x, y, baseFont, align) {
+    const parts = [];
     const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|[^*`]+)/g;
     let m;
-    while ((m = re.exec(text)) !== null) {
-        if (m[2]) runs.push({ text:m[2], bold:true,  italic:false, code:false });
-        else if (m[3]) runs.push({ text:m[3], bold:false, italic:true,  code:false });
-        else if (m[4]) runs.push({ text:m[4], bold:false, italic:false, code:true  });
-        else runs.push({ text:m[0], bold:false, italic:false, code:false });
+    while ((m = re.exec(line)) !== null) {
+        if (m[2]) parts.push({ text: m[2], bold: true, italic: false });
+        else if (m[3]) parts.push({ text: m[3], bold: false, italic: true });
+        else if (m[4]) parts.push({ text: m[4], bold: false, italic: false, code: true });
+        else parts.push({ text: m[0], bold: false, italic: false });
     }
+    const sizeMatch = baseFont.match(/(\d+)px/);
+    const size = sizeMatch ? parseInt(sizeMatch[1]) : 18;
+    const fontName = baseFont.replace(/^[\d.]+px\s*/, '');
 
-    const tokens = [];
-    runs.forEach(r => {
-        const parts = r.text.split(/(\s+)/).filter(p => p.length > 0);
-        parts.forEach(p => {
-            const isSpace = /^\s+$/.test(p);
-            tokens.push({
-                text: isSpace ? ' ' : p, // 연속 공백은 1칸으로 정규화
-                bold: r.bold, italic: r.italic, code: r.code,
-                space: isSpace,
-            });
-        });
-    });
-    return tokens;
-}
-
-function tokenWidth(ctx, tok, size, fontName) {
-    ctx.font = (tok.bold?'bold ':'') + (tok.italic?'italic ':'') + size + 'px ' + fontName;
-    return ctx.measureText(tok.text).width;
-}
-
-// 토큰 배열을 주어진 폭(maxW)에 맞춰 줄 단위로 분해
-function wrapTokens(ctx, tokens, maxW, size, fontName) {
-    const lines = [];
-    let line = [];
-    let lineW = 0;
-
-    tokens.forEach(tok => {
-        if (tok.space && line.length === 0) return; // 줄 맨 앞 공백은 무시
-        const w = tokenWidth(ctx, tok, size, fontName);
-
-        if (line.length > 0 && lineW + w > maxW) {
-            while (line.length && line[line.length-1].space) {
-                lineW -= tokenWidth(ctx, line[line.length-1], size, fontName);
-                line.pop();
-            }
-            lines.push(line);
-            line = [];
-            lineW = 0;
-            if (tok.space) return; // 새 줄 시작에 공백 스킵
-        }
-
-        line.push(tok);
-        lineW += w;
-    });
-
-    while (line.length && line[line.length-1].space) line.pop();
-    if (line.length) lines.push(line);
-    return lines;
-}
-
-// 스타일이 적용된 토큰 한 줄을 캔버스에 그리기
-function drawTokenLine(ctx, tokens, x, y, size, fontName, align) {
+    // 전체 너비 계산
     let totalW = 0;
-    tokens.forEach(t => { totalW += tokenWidth(ctx, t, size, fontName); });
-
-    let curX;
-    if (align==='center') curX = x - totalW/2;
-    else if (align==='right') curX = x - totalW;
-    else curX = x;
-
-    ctx.textAlign = 'left';
-    tokens.forEach(t => {
-        ctx.font = (t.bold?'bold ':'') + (t.italic?'italic ':'') + size + 'px ' + fontName;
-        if (t.code) {
-            const w = ctx.measureText(t.text).width;
-            ctx.save();
-            ctx.globalAlpha = 0.15;
-            ctx.fillRect(curX-2, y-size+2, w+4, size+2);
-            ctx.restore();
-        }
-        ctx.fillText(t.text, curX, y);
-        curX += ctx.measureText(t.text).width;
+    parts.forEach(p => {
+        ctx.font = (p.bold?'bold ':'')+(p.italic?'italic ':'')+size+'px '+fontName;
+        totalW += ctx.measureText(p.text).width;
     });
+
+    // 시작 x 계산
+    let curX = align==='center' ? x - totalW/2 : align==='right' ? x - totalW : x;
+
+    // 핵심: 개별 파트는 항상 left 기준으로 그려야 함
+    const savedAlign = ctx.textAlign;
     ctx.textAlign = 'left';
+
+    parts.forEach(p => {
+        ctx.font = (p.bold?'bold ':'')+(p.italic?'italic ':'')+size+'px '+fontName;
+        if (p.code) {
+            const w = ctx.measureText(p.text).width;
+            ctx.save(); ctx.globalAlpha=0.15; ctx.fillRect(curX-2, y-size+2, w+4, size+2); ctx.restore();
+        }
+        ctx.fillText(p.text, curX, y);
+        curX += ctx.measureText(p.text).width;
+    });
+
+    ctx.textAlign = savedAlign;
+    ctx.font = baseFont;
 }
