@@ -331,30 +331,57 @@ function renderCard(canvas, text, charName) {
 
     const isLand = S().orientation==='landscape';
     const W = isLand ? 960 : 720;
-    const H = isLand ? 720 : 960;
+    const baseH = isLand ? 720 : 960;
     const PAD = 64;
-    canvas.width=W; canvas.height=H;
-    const ctx=canvas.getContext('2d');
 
-    // 폰트 크기 자동 조정 (22px~13px)
     const paras = text.split(/\n\n|\n/).map(p=>p.trim()).filter(Boolean);
     const manualFs = S().fontSize || 0;
-    let fs=22, lh=38, pg=22;
-    if (manualFs >= 8) {
-        fs=manualFs; lh=Math.round(fs*1.72); pg=Math.round(fs*1.0);
-    } else
-    for (let f=22; f>=13; f--) {
-        ctx.font=`italic ${f}px ${font}`;
-        const l=Math.round(f*1.72), g=Math.round(f*1.0);
-        let tot=0;
-        paras.forEach((p,i)=>{ tot+=wrapText(ctx,p,W-PAD*2).length*l; if(i<paras.length-1)tot+=g; });
-        if (tot<=H-PAD*2-100) { fs=f; lh=l; pg=g; break; }
-        if (f===13) { fs=13; lh=Math.round(13*1.72); pg=Math.round(13*1.0); }
+
+    // 상/하단 고정 장식 영역
+    const ornY = PAD + 20;
+    const topFixed = ornY + 52;
+    const bottomFixed = PAD + 26;
+    const GAP = 34;
+    const nameBlock = (S().showCharName && charName) ? 54 : 0;
+
+    // 텍스트 높이 측정용 임시 캔버스
+    const measCtx = document.createElement('canvas').getContext('2d');
+    function measureAt(f) {
+        const l = Math.round(f*1.72), g = Math.round(f*1.0);
+        let tot = 0;
+        paras.forEach((p,i)=>{
+            measCtx.font = f+'px '+font;
+            tot += wrapText(measCtx,p,W-PAD*2).length*l;
+            if(i<paras.length-1) tot+=g;
+        });
+        return { tot, l, g };
     }
+
+    let fs, lh, pg, totH;
+    if (manualFs >= 8) {
+        const r = measureAt(manualFs);
+        fs=manualFs; lh=r.l; pg=r.g; totH=r.tot;
+    } else {
+        const avail = baseH - topFixed - bottomFixed - GAP - nameBlock;
+        let picked = null;
+        for (let f=22; f>=13; f--) {
+            const r = measureAt(f);
+            if (r.tot <= avail) { picked={f,...r}; break; }
+        }
+        if (!picked) picked={f:13,...measureAt(13)};
+        fs=picked.f; lh=picked.l; pg=picked.g; totH=picked.tot;
+    }
+
+    // 텍스트가 기본 높이를 초과하면 캔버스를 늘림 (최대 3배)
+    const neededH = topFixed + totH + nameBlock + GAP + bottomFixed;
+    const H = Math.max(baseH, Math.min(Math.round(neededH), baseH*3));
+
     const bodyFont=`${fs}px ${font}`;
     const metaFont=`${Math.max(11,fs-8)}px ${font}`;
 
-    // 배경 그리기
+    canvas.width=W; canvas.height=H;
+    const ctx=canvas.getContext('2d');
+
     if (bg==='unsplash' && photoUrl) {
         const img=new Image(); img.crossOrigin='anonymous';
         img.onload=()=>{
