@@ -1,633 +1,494 @@
-// Kor w.Chat - SillyTavern Font Extension
+// BookMark.w - SillyTavern Extension
 import { saveSettingsDebounced } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 
-const EXT_NAME = 'kor-wchat-fonts';
-// Font Awesome, 이모지, SVG, 아이콘 요소 제외
-// strong/b 는 font-weight 건드리지 않기 위해 별도 셀렉터로 분리
-const CHAT_SELECTOR = [
-    '#chat .mes_text',
-    '#chat .mes_text p',
-    '#chat .mes_text span:not(.fa):not([class*="fa-"])',
-    '#chat .mes_text div:not(.fa):not([class*="fa-"])',
-    '#chat .mes_text em',
-    '#chat .mes_text li',
-    '#chat .mes_text a',
-].join(', ');
-// 폰트패밀리/크기만 적용, font-weight는 건드리지 않는 셀렉터
-const CHAT_SELECTOR_BOLD_SAFE = '#chat .mes_text strong, #chat .mes_text b';
-const STYLE_ID = 'kwc-applied-style';
-const FACE_ID = 'kwc-active-face';
-let activeUrl = null;
-let applySequence = 0;
-let previewUrls = [];
+const EXT = 'bookmark-w';
+const DEF = { bgStyle:'parchment', showCharName:true, personaNames:[], textAlign:'center', textColor:'dark', fontSize:0, orientation:'portrait' };
 
-function openFontDB() {
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open('kor-wchat-fonts', 1);
-        request.onupgradeneeded = () => request.result.createObjectStore('fonts');
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
+jQuery(async () => { loadSettings(); injectBtn(); attachListener(); });
+
+function loadSettings() {
+    extension_settings[EXT] = Object.assign({}, DEF, extension_settings[EXT]);
+    if (!Array.isArray(extension_settings[EXT].personaNames)) extension_settings[EXT].personaNames = [];
+}
+function S() { return extension_settings[EXT]; }
+function save() { saveSettingsDebounced(); }
+
+function mask(text) {
+    let r = text;
+    (S().personaNames||[]).forEach(n => {
+        if (!n) return;
+        r = r.replace(new RegExp(n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'g'),'{{user}}');
+    });
+    return r;
+}
+
+// -- Selection button --
+let selBtn = null;
+function injectBtn() {
+    selBtn = document.createElement('div');
+    Object.assign(selBtn.style, {
+        position:'fixed', zIndex:'2147483647', display:'none',
+        pointerEvents:'auto', lineHeight:'1', fontSize:'20px', cursor:'pointer',
+        filter:'drop-shadow(0 2px 8px rgba(0,0,0,0.7))',
+        WebkitTapHighlightColor:'transparent', touchAction:'manipulation',
+        userSelect:'none', WebkitUserSelect:'none',
+    });
+    selBtn.textContent = '🔖';
+    selBtn.addEventListener('click', trigger);
+    selBtn.addEventListener('touchend', e => { e.preventDefault(); trigger(); });
+    document.documentElement.appendChild(selBtn);
+}
+
+let selText = '', selChar = '', selTimer = null, hideTimer = null;
+
+function attachListener() {
+    document.addEventListener('selectionchange', () => {
+        clearTimeout(selTimer);
+        const t = window.getSelection()?.toString().trim() || '';
+        if (t.length >= 5) {
+            selTimer = setTimeout(tryShow, 750);
+        } else {
+            clearTimeout(hideTimer);
+            hideTimer = setTimeout(() => {
+                if (!window.getSelection()?.toString().trim()) selBtn.style.display = 'none';
+            }, 400);
+        }
+    });
+    // 모바일 touchend
+    document.addEventListener('touchend', e => {
+        if (e.target === selBtn) return;
+        clearTimeout(selTimer); selTimer = setTimeout(tryShow, 600);
+    }, { passive: true });
+    // 데스크탑 mouseup
+    document.addEventListener('mouseup', e => {
+        if (e.target === selBtn) return;
+        clearTimeout(selTimer); selTimer = setTimeout(tryShow, 80);
     });
 }
-async function fontStore(mode, operation) {
-    const db = await openFontDB();
+
+function tryShow() {
+    const sel = window.getSelection();
+    const t = sel?.toString().trim() || '';
+    if (t.length < 5) { selBtn.style.display = 'none'; return; }
+    const node = sel.focusNode || sel.anchorNode;
+    // 채팅창(#chat) 안에서만 버튼 표시
+    const inChat = node?.parentElement?.closest?.('#chat');
+    if (!inChat) { selBtn.style.display = 'none'; return; }
+    const mes = node?.parentElement?.closest?.('.mes');
+    // 이모지/특수문자 제거하고 텍스트만 추출
+    const rawName = mes ? (mes.querySelector('.name_text')?.textContent?.trim() || mes.getAttribute('ch_name') || '') : '';
+    selChar = rawName.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FEFF}]/gu, '').trim();
+    selText = t;
+    let x = window.innerWidth/2, y = 300;
+    try { const r = sel.getRangeAt(0).getClientRects(); if (r.length) { x=r[r.length-1].right; y=r[r.length-1].bottom; } } catch(_){}
+    const sz = 28;
+    selBtn.style.left = Math.min(Math.max(x-sz/2,4), window.innerWidth-sz-4)+'px';
+    selBtn.style.top  = Math.min(y+52, window.innerHeight-sz-8)+'px';
+    selBtn.style.display = 'block';
+}
+
+function trigger() {
+    selBtn.style.display = 'none';
+    openModal(mask(selText), mask(selChar));
+}
+
+// -- Unsplash --
+let photoUrl = null, photoCredit = '';
+async function fetchPhoto(query) {
     try {
-        return await new Promise((resolve, reject) => {
-            const tx = db.transaction('fonts', mode);
-            const request = operation(tx.objectStore('fonts'));
-            let result;
-            request.onsuccess = () => { result = request.result; };
-            request.onerror = () => reject(request.error);
-            tx.oncomplete = () => resolve(result);
-            tx.onerror = () => reject(tx.error);
-            tx.onabort = () => reject(tx.error || new Error('폰트 저장이 중단되었습니다.'));
-        });
-    } finally { db.close(); }
-}
-const getFont = key => fontStore('readonly', store => store.get(key));
-const putFont = (key, value) => fontStore('readwrite', store => store.put(value, key));
-const deleteFont = key => fontStore('readwrite', store => store.delete(key));
-const fontKey = () => crypto.randomUUID();
-function safeFamily(value) { return String(value).replace(/[\\'\r\n]/g, ''); }
-function clearActiveFace() {
-    document.getElementById(FACE_ID)?.remove();
-    if (activeUrl) URL.revokeObjectURL(activeUrl);
-    activeUrl = null;
-}
-
-// Migrate one font at a time. Keep legacy CSS until its IndexedDB write succeeds.
-async function migrateFonts() {
-    let changed = false;
-    for (const font of S().fonts) {
-        if (!font.cssContent) continue;
-        const key = font.key || fontKey();
-        try {
-            await putFont(key, { cssContent: font.cssContent });
-            font.key = key;
-            delete font.cssContent;
-            changed = true;
-        } catch (error) {
-            console.error('Kor w.Chat: 폰트 이전 실패', error);
-            toast(`「${font.name}」 저장소 이전 실패. 기존 데이터는 유지됩니다.`, 'error');
-        }
+        const res = await fetch(`https://api.unsplash.com/photos/random?query=${encodeURIComponent(query.slice(0,60))}&orientation=portrait&client_id=tBSCqbCHDM_3mFMfRhfmKBHbWpBr7KBxKxJGi0PEjg`);
+        if (!res.ok) throw new Error();
+        const d = await res.json();
+        photoUrl = d.urls.regular; photoCredit = d.user.name;
+    } catch(_) {
+        photoUrl = `https://picsum.photos/seed/${Math.floor(Math.random()*1000)}/720/960`;
+        photoCredit = 'Lorem Picsum';
     }
-    if (changed) saveSettingsDebounced();
+    return photoUrl;
+}
+function keywords(text) {
+    const w = text.match(/[a-zA-Z]{4,}|[\uAC00-\uD7A3]{2,}/g)||[];
+    const stop = new Set(['that','this','with','have','from','they','will','been','were','when','what','your','also','into','than','them','their']);
+    return w.filter(x=>!stop.has(x.toLowerCase())).slice(0,3).join(' ')||'cinematic moody';
 }
 
+// -- Modal --
+let modal = null;
+function openModal(text, charName) {
+    if (modal) modal.remove();
+    const W = window.innerWidth, H = window.innerHeight;
+    modal = document.createElement('div');
+    Object.assign(modal.style, {
+        position:'fixed', top:'0px', left:'0px', width:W+'px', height:H+'px',
+        zIndex:'2147483647', background:'rgba(0,0,0,0.6)',
+        backdropFilter:'none', WebkitBackdropFilter:'none',
+        display:'flex', alignItems:'flex-start', justifyContent:'center',
+        paddingTop:'52px', boxSizing:'border-box',
+        overflow:'hidden', transform:'none', willChange:'auto',
+    });
+    const close = () => { modal.remove(); modal = null; };
+    modal.addEventListener('click', e => { if (e.target===modal) close(); });
 
-const defaultSettings = {
-    fonts: [],
-    activeFont: null,
-    fontSize: null,
-    bold: false,
-    applyScope: 'chat',
+    const card = document.createElement('div');
+    const cW = Math.min(W-32, 480);
+    Object.assign(card.style, {
+        width:cW+'px', maxHeight:(H-72)+'px', overflowY:'auto', WebkitOverflowScrolling:'touch',
+        background:'#1e1a16', borderRadius:'20px', padding:'16px 16px 28px',
+        boxSizing:'border-box', display:'flex', flexDirection:'column', alignItems:'center', gap:'12px',
+        boxShadow:'0 24px 60px rgba(0,0,0,0.8), 0 0 0 1px rgba(201,169,110,0.2)',
+    });
+    card.addEventListener('click', e => e.stopPropagation());
+
+    // 닫기
+    const closeBtn = mkBtn('✕', { alignSelf:'flex-end', background:'none', border:'none', color:'rgba(200,184,144,0.6)', fontSize:'18px', padding:'0 4px' });
+    closeBtn.onclick = close;
+    closeBtn.addEventListener('touchend', e => { e.preventDefault(); close(); });
+
+    // 캔버스
+    const canvas = document.createElement('canvas');
+    Object.assign(canvas.style, { width:'100%', height:'auto', display:'block', borderRadius:'12px', boxShadow:'0 4px 24px rgba(0,0,0,0.5)', flexShrink:'0' });
+
+    const redraw = () => renderCard(canvas, text, charName);
+
+    // 배경 스타일 버튼
+    const styleRow = mkRow();
+    const bgOpts = [['parchment','양피지'],['dark','다크'],['linen','린넨'],['sage','세이지'],['unsplash','🖼']];
+    bgOpts.forEach(([bg, label]) => {
+        const b = mkBtn(label, { background: bg===S().bgStyle?'rgba(201,169,110,0.28)':'rgba(255,255,255,0.08)', color:'#c8b890', border:'1px solid rgba(201,169,110,0.35)', borderRadius:'16px', padding:'6px 13px', fontSize:'13px' });
+        const pick = async () => {
+            styleRow.querySelectorAll('button').forEach(x => x.style.background='rgba(255,255,255,0.08)');
+            b.style.background='rgba(201,169,110,0.28)';
+            if (bg==='unsplash') { b.textContent='⏳'; await fetchPhoto(keywords(text)); b.textContent='🖼'; }
+            S().bgStyle = bg; save(); redraw();
+        };
+        b.onclick = pick; b.addEventListener('touchend', e=>{e.preventDefault();pick();});
+        styleRow.appendChild(b);
+    });
+
+    // 옵션 행 (정렬 + 글씨 색)
+    const optRow = mkRow();
+    // 정렬
+    [['left','◀'],['center','■'],['right','▶']].forEach(([a,icon]) => {
+        const b = mkBtn(icon, { background:S().textAlign===a?'rgba(201,169,110,0.28)':'rgba(255,255,255,0.08)', color:'#c8b890', border:'1px solid rgba(201,169,110,0.3)', borderRadius:'12px', padding:'6px 12px', fontSize:'13px' });
+        b.dataset.type='align';
+        const pick = () => { optRow.querySelectorAll('[data-type="align"]').forEach(x=>x.style.background='rgba(255,255,255,0.08)'); b.style.background='rgba(201,169,110,0.28)'; S().textAlign=a; save(); redraw(); };
+        b.onclick=pick; b.addEventListener('touchend',e=>{e.preventDefault();pick();});
+        optRow.appendChild(b);
+    });
+    // 구분
+    const sep = document.createElement('span');
+    Object.assign(sep.style,{color:'rgba(201,169,110,0.3)',fontSize:'18px',lineHeight:'1',alignSelf:'center'});
+    sep.textContent='|'; optRow.appendChild(sep);
+    // 글씨 색
+    [['dark','#2a1f10'],['white','#f0f0f0']].forEach(([col,fg]) => {
+        const b = mkBtn('A', { background:S().textColor===col?'rgba(201,169,110,0.28)':'rgba(255,255,255,0.08)', color:fg, border:'1px solid rgba(201,169,110,0.3)', borderRadius:'12px', padding:'6px 14px', fontSize:'15px', fontWeight:'bold' });
+        b.dataset.type='color';
+        const pick = () => { optRow.querySelectorAll('[data-type="color"]').forEach(x=>x.style.background='rgba(255,255,255,0.08)'); b.style.background='rgba(201,169,110,0.28)'; S().textColor=col; save(); redraw(); };
+        b.onclick=pick; b.addEventListener('touchend',e=>{e.preventDefault();pick();});
+        optRow.appendChild(b);
+    });
+
+    // 방향 선택 (세로/가로)
+    const orientRow = mkRow();
+    [['portrait','세로 3:4'],['landscape','가로 4:3']].forEach(([ori, label]) => {
+        const b = mkBtn(label, {
+            background: S().orientation===ori ? 'rgba(201,169,110,0.28)' : 'rgba(255,255,255,0.08)',
+            color:'#c8b890', border:'1px solid rgba(201,169,110,0.35)',
+            borderRadius:'16px', padding:'6px 14px', fontSize:'13px',
+        });
+        b.dataset.ori = ori;
+        const pick = () => {
+            orientRow.querySelectorAll('button').forEach(x => x.style.background='rgba(255,255,255,0.08)');
+            b.style.background='rgba(201,169,110,0.28)';
+            S().orientation=ori; save(); redraw();
+        };
+        b.onclick=pick; b.addEventListener('touchend',e=>{e.preventDefault();pick();});
+        orientRow.appendChild(b);
+    });
+
+    // 글씨 크기 슬라이더
+    const sizeRow = document.createElement('div');
+    Object.assign(sizeRow.style, { display:'flex', alignItems:'center', gap:'10px', width:'100%', flexShrink:'0', padding:'0 4px', boxSizing:'border-box' });
+    const sizeLabel = document.createElement('span');
+    Object.assign(sizeLabel.style, { color:'rgba(200,184,144,0.7)', fontSize:'12px', whiteSpace:'nowrap', minWidth:'44px' });
+    sizeLabel.textContent = S().fontSize ? S().fontSize+'px' : '자동';
+    const slider = document.createElement('input');
+    slider.type='range'; slider.min='0'; slider.max='30'; slider.step='1'; slider.value=S().fontSize||0;
+    Object.assign(slider.style, { flex:'1', accentColor:'#c9a96e', cursor:'pointer' });
+    const resetBtn = mkBtn('↺', { background:'none', border:'none', color:'rgba(201,169,110,0.6)', fontSize:'16px', padding:'0 2px' });
+    slider.oninput = () => { const v=parseInt(slider.value); S().fontSize=v; save(); sizeLabel.textContent=v?v+'px':'자동'; redraw(); };
+    const doReset = () => { slider.value=0; S().fontSize=0; save(); sizeLabel.textContent='자동'; redraw(); };
+    resetBtn.onclick=doReset; resetBtn.addEventListener('touchend',e=>{e.preventDefault();doReset();});
+    sizeRow.appendChild(sizeLabel); sizeRow.appendChild(slider); sizeRow.appendChild(resetBtn);
+
+    // 화자 + 페르소나
+    const bottomRow = mkRow();
+    const charLbl = document.createElement('label');
+    Object.assign(charLbl.style,{display:'flex',alignItems:'center',gap:'8px',color:'#c8b890',fontSize:'13px',cursor:'pointer'});
+    const charChk = document.createElement('input'); charChk.type='checkbox'; charChk.checked=S().showCharName;
+    charChk.onchange = () => { S().showCharName=charChk.checked; save(); redraw(); };
+    charLbl.appendChild(charChk); charLbl.appendChild(document.createTextNode('화자 이름'));
+
+    const pToggle = mkBtn('⚙ 페르소나', { background:'rgba(201,169,110,0.10)', border:'1px solid rgba(201,169,110,0.25)', borderRadius:'14px', padding:'5px 12px', color:'#c9a96e', fontSize:'12px' });
+    bottomRow.appendChild(charLbl); bottomRow.appendChild(pToggle);
+
+    // 페르소나 패널
+    const pPanel = document.createElement('div');
+    Object.assign(pPanel.style,{ display:'none', width:'100%', background:'rgba(0,0,0,0.25)', border:'1px solid rgba(201,169,110,0.12)', borderRadius:'8px', padding:'10px 12px', boxSizing:'border-box', flexDirection:'column', gap:'8px', flexShrink:'0' });
+    const pSub = document.createElement('div');
+    Object.assign(pSub.style,{fontSize:'11px',color:'rgba(200,184,144,0.55)',fontFamily:'sans-serif'});
+    pSub.textContent='등록한 이름은 카드에서 {{user}}로 치환됩니다.';
+    const pInputRow = mkRow();
+    const pInput = document.createElement('input'); pInput.type='text'; pInput.placeholder='페르소나 이름';
+    Object.assign(pInput.style,{flex:'1',padding:'6px 10px',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(201,169,110,0.2)',borderRadius:'6px',color:'#e8ddc8',fontSize:'12px',outline:'none'});
+    const pAdd = mkBtn('추가',{padding:'6px 12px',background:'rgba(201,169,110,0.15)',border:'1px solid rgba(201,169,110,0.3)',borderRadius:'6px',color:'#c9a96e',fontSize:'12px',whiteSpace:'nowrap'});
+    pInputRow.appendChild(pInput); pInputRow.appendChild(pAdd);
+    const pList = document.createElement('div');
+    Object.assign(pList.style,{display:'flex',flexWrap:'wrap',gap:'5px',minHeight:'18px'});
+
+    function refreshP() {
+        pList.innerHTML='';
+        if (!S().personaNames.length) { const e=document.createElement('span'); Object.assign(e.style,{fontSize:'11px',opacity:'0.35',fontStyle:'italic',fontFamily:'sans-serif',color:'#e8ddc8'}); e.textContent='등록된 페르소나 없음'; pList.appendChild(e); return; }
+        S().personaNames.forEach(n=>{
+            const tag=document.createElement('span');
+            Object.assign(tag.style,{display:'inline-flex',alignItems:'center',gap:'4px',padding:'2px 8px',background:'rgba(201,169,110,0.12)',border:'1px solid rgba(201,169,110,0.25)',borderRadius:'16px',fontSize:'11px',color:'#e8ddc8',fontFamily:'sans-serif'});
+            tag.textContent=n+' ';
+            const rm=document.createElement('button'); rm.textContent='✕';
+            Object.assign(rm.style,{background:'none',border:'none',color:'rgba(201,169,110,0.5)',cursor:'pointer',fontSize:'9px',padding:'0',lineHeight:'1'});
+            rm.onclick=()=>{S().personaNames=S().personaNames.filter(x=>x!==n);save();refreshP();};
+            tag.appendChild(rm); pList.appendChild(tag);
+        });
+    }
+    refreshP();
+    const doAdd=()=>{const v=pInput.value.trim();if(!v||S().personaNames.includes(v))return;S().personaNames.push(v);save();pInput.value='';refreshP();};
+    pAdd.onclick=doAdd; pInput.onkeydown=e=>{if(e.key==='Enter')doAdd();};
+    pPanel.appendChild(pSub); pPanel.appendChild(pInputRow); pPanel.appendChild(pList);
+    const toggleP=()=>{pPanel.style.display=pPanel.style.display==='none'?'flex':'none';};
+    pToggle.onclick=toggleP; pToggle.addEventListener('touchend',e=>{e.preventDefault();toggleP();});
+
+    // PNG 저장
+    const dlBtn = mkBtn('⬇ PNG 저장',{background:'linear-gradient(135deg,#3b2a1a,#5a3e20)',color:'#f5e9c9',border:'1px solid #c9a96e',borderRadius:'20px',padding:'10px 28px',fontSize:'14px',flexShrink:'0'});
+    const dl=()=>{
+        const a=document.createElement('a');
+        a.download=`bookmark_${Date.now()}.png`;
+        a.href=canvas.toDataURL('image/png');
+        a.click();
+        // 저장 완료 토스트
+        const toast=document.createElement('div');
+        Object.assign(toast.style,{
+            position:'fixed', bottom:'80px', left:'50%', transform:'translateX(-50%)',
+            background:'rgba(30,26,20,0.95)', border:'1px solid rgba(201,169,110,0.5)',
+            color:'#f5e9c9', borderRadius:'20px', padding:'10px 22px',
+            fontSize:'14px', zIndex:'2147483647', pointerEvents:'none',
+            boxShadow:'0 4px 20px rgba(0,0,0,0.5)',
+            fontFamily:'sans-serif', whiteSpace:'nowrap',
+            transition:'opacity 0.4s',
+        });
+        toast.textContent = '✅ 저장 완료!';
+        document.documentElement.appendChild(toast);
+        setTimeout(()=>{ toast.style.opacity='0'; setTimeout(()=>toast.remove(),400); }, 1800);
+    };
+    dlBtn.onclick=dl; dlBtn.addEventListener('touchend',e=>{e.preventDefault();dl();});
+
+    card.appendChild(closeBtn); card.appendChild(canvas); card.appendChild(styleRow);
+    card.appendChild(orientRow); card.appendChild(optRow); card.appendChild(sizeRow); card.appendChild(bottomRow); card.appendChild(pPanel); card.appendChild(dlBtn);
+    modal.appendChild(card); document.documentElement.appendChild(modal);
+
+    if (S().bgStyle==='unsplash' && !photoUrl) fetchPhoto(keywords(text)).then(redraw);
+    else redraw();
+}
+
+function mkBtn(txt, styles) {
+    const b=document.createElement('button'); b.textContent=txt;
+    Object.assign(b.style,{cursor:'pointer',touchAction:'manipulation',WebkitTapHighlightColor:'transparent',...styles}); return b;
+}
+function mkRow() {
+    const d=document.createElement('div');
+    Object.assign(d.style,{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'center',flexShrink:'0',width:'100%'}); return d;
+}
+
+// -- Canvas --
+const THEMES = {
+    parchment:{bg:['#f5e9c9','#ede0b0'],rule:'#c9a96e',ornament:'#c9a96e'},
+    dark:{bg:['#1a1714','#2a2420'],rule:'#4a3f30',ornament:'#c9a96e'},
+    linen:{bg:['#faf6f0','#f0ebe0'],rule:'#d0c4a8',ornament:'#a08060'},
+    sage:{bg:['#e8ede0','#d8e0cc'],rule:'#9aaa88',ornament:'#6a8a58'},
+};
+const TCOLORS = {
+    dark:{text:'#2a1f10',accent:'#6b4420'},
+    white:{text:'#f5f0e8',accent:'#e8d9b8'},
 };
 
-function initSettings() {
-    if (!extension_settings[EXT_NAME]) {
-        extension_settings[EXT_NAME] = structuredClone(defaultSettings);
-    }
-    for (const [k, v] of Object.entries(defaultSettings)) {
-        if (extension_settings[EXT_NAME][k] === undefined) {
-            extension_settings[EXT_NAME][k] = v;
-        }
-    }
-}
+function renderCard(canvas, text, charName) {
+    const bg = S().bgStyle;
+    const theme = THEMES[bg] || THEMES.parchment;
+    const tc = TCOLORS[S().textColor] || TCOLORS.dark;
+    const align = S().textAlign || 'center';
 
-function S() { return extension_settings[EXT_NAME]; }
+    const chatEl = document.querySelector('#chat .mes_text') || document.querySelector('.mes_text');
+    const font = chatEl ? window.getComputedStyle(chatEl).fontFamily : '"Palatino Linotype",Palatino,serif';
 
-// ── Style injection ────────────────────────────────────────────────────────
+    const isLand = S().orientation==='landscape';
+    const W = isLand ? 960 : 720;
+    const baseH = isLand ? 720 : 960;
+    const PAD = 64;
 
-async function buildAndApply() {
-    const sequence = ++applySequence;
-    document.getElementById(STYLE_ID)?.remove();
-    clearActiveFace();
-    const font = S().fonts.find(f => f.name === S().activeFont);
-    let face = '';
-    if (font) {
-        try {
-            const stored = font.key ? await getFont(font.key) : null;
-            if (sequence !== applySequence) return;
-            if (stored?.blob) {
-                activeUrl = URL.createObjectURL(stored.blob);
-                face = `@font-face { font-family: '${safeFamily(font.fontFamily)}'; src: url('${activeUrl}') format('${stored.format}'); }`;
-            } else {
-                face = stored?.cssContent || font.cssContent || '';
-            }
-            if (!face) throw new Error('저장된 폰트 파일을 찾을 수 없습니다.');
-        } catch (error) {
-            if (sequence !== applySequence) return;
-            toast(`폰트를 읽지 못했습니다: ${error.message}`, 'error');
-            console.error('Kor w.Chat: 폰트 읽기 실패', error);
-        }
-    }
-    if (sequence !== applySequence) return;
-    if (face) {
-        const el = document.createElement('style');
-        el.id = FACE_ID;
-        el.textContent = face;
-        document.head.appendChild(el);
-    }
-    const lines = [];
-    const sizeRule = S().fontSize ? `font-size: ${S().fontSize}px !important;` : '';
-    if (font && face) {
-        const family = `'${safeFamily(font.fontFamily)}', sans-serif`;
-        if (S().applyScope === 'global') {
-            // Override existing UI fonts, but preserve icon glyphs and code blocks.
-            lines.push(`body, body :not(.fa):not(.fas):not(.far):not(.fab):not(.fa-solid):not(.fa-regular):not(.fa-brands):not([class*="fa-"]):not(.material-icons):not(.material-symbols-outlined):not(.material-symbols-rounded):not([class*="icon-"]):not(code):not(pre) { font-family: ${family} !important; }`);
-        } else {
-            lines.push(`${CHAT_SELECTOR}, ${CHAT_SELECTOR_BOLD_SAFE} { font-family: ${family} !important; }`);
-        }
-    }
-    if (sizeRule) lines.push(`${CHAT_SELECTOR}, ${CHAT_SELECTOR_BOLD_SAFE} { ${sizeRule} }`);
-    if (S().bold) lines.push(`${CHAT_SELECTOR}, ${CHAT_SELECTOR_BOLD_SAFE} { font-weight: bold !important; }`);
-    if (lines.length) {
-        const el = document.createElement('style');
-        el.id = STYLE_ID;
-        el.textContent = lines.join('\n');
-        document.head.appendChild(el);
-    }
-}
+    const paras = text.split(/\n\n|\n/).map(p=>p.trim()).filter(Boolean);
+    const manualFs = S().fontSize || 0;
 
-function resetAll() {
-    ++applySequence;
-    document.getElementById(STYLE_ID)?.remove();
-    clearActiveFace();
-    S().activeFont = null;
-    S().fontSize = null;
-    S().bold = false;
-    saveSettingsDebounced();
-}
+    // 상/하단 고정 장식 영역
+    const ornY = PAD + 20;
+    const topFixed = ornY + 52;
+    const bottomFixed = PAD + 26;
+    const GAP = 34;
+    const nameBlock = (S().showCharName && charName) ? 54 : 0;
 
-// ── Toast ──────────────────────────────────────────────────────────────────
-
-function toast(msg, type = 'success') {
-    const el = document.getElementById('kf-toast');
-    if (!el) return;
-    el.textContent = msg;
-    el.className = `kf-toast kf-toast-${type}`;
-    el.style.display = 'block';
-    clearTimeout(el._t);
-    el._t = setTimeout(() => { el.style.display = 'none'; }, 2500);
-}
-
-// ── Font list ──────────────────────────────────────────────────────────────
-
-function renderFontList() {
-    const list = document.getElementById('kf-font-list');
-    if (!list) return;
-
-    if (S().fonts.length === 0) {
-        list.innerHTML = '<div class="kf-empty-state">아직 추가된 폰트가 없습니다.</div>';
-        return;
-    }
-
-    previewUrls.forEach(url => URL.revokeObjectURL(url));
-    previewUrls = [];
-    document.getElementById('kwc-list-preview-faces')?.remove();
-    list.innerHTML = '';
-    const previewStyle = document.createElement('style');
-    previewStyle.id = 'kwc-list-preview-faces';
-    document.head.appendChild(previewStyle);
-    S().fonts.forEach((font, index) => {
-        const isActive = font.name === S().activeFont;
-        const item = document.createElement('div');
-        item.className = 'kf-font-item' + (isActive ? ' active' : '');
-        item.innerHTML = `
-            <div class="kf-font-info">
-                <span class="kf-font-name">${esc(font.name)}</span>
-                <span class="kf-font-badge kf-badge-${font.type}">${font.type === 'local' ? '📁 로컬' : '🌐 눈누'}</span>
-                <span class="kf-font-swatch">가나다 ABC</span>
-            </div>
-            <div class="kf-font-actions">
-                <button class="kf-btn ${isActive ? 'kf-btn-active' : 'kf-btn-apply'}" data-name="${esc(font.name)}">
-                    ${isActive ? '✓ 적용중' : '적용'}
-                </button>
-                <button class="kf-btn kf-btn-remove" data-name="${esc(font.name)}">삭제</button>
-            </div>
-        `;
-        list.appendChild(item);
-        const swatch = item.querySelector('.kf-font-swatch');
-        const previewFamily = `kwc-preview-${index}`;
-        (async () => {
-            try {
-                const stored = font.key ? await getFont(font.key) : null;
-                if (!previewStyle.isConnected || !swatch.isConnected) return;
-                if (stored?.blob) {
-                    const url = URL.createObjectURL(stored.blob);
-                    previewUrls.push(url);
-                    previewStyle.textContent += `\n@font-face { font-family: '${previewFamily}'; src: url('${url}') format('${stored.format}'); }`;
-                    swatch.style.fontFamily = `'${previewFamily}', sans-serif`;
-                } else {
-                    const css = stored?.cssContent || font.cssContent;
-                    if (!css) return;
-                    previewStyle.textContent += `\n${css}`;
-                    swatch.style.fontFamily = `'${safeFamily(font.fontFamily)}', sans-serif`;
-                }
-            } catch (error) { console.error('Kor w.Chat: 미리보기 로드 실패', error); }
-        })();
-    });
-
-    list.querySelectorAll('.kf-btn-apply').forEach(btn => {
-        btn.addEventListener('click', () => {
-            S().activeFont = btn.dataset.name;
-            buildAndApply();
-            saveSettingsDebounced();
-            renderFontList();
-            toast(`✅ "${btn.dataset.name}" 적용됨`);
+    // 텍스트 높이 측정용 임시 캔버스
+    const measCtx = document.createElement('canvas').getContext('2d');
+    function measureAt(f) {
+        const l = Math.round(f*1.72), g = Math.round(f*1.0);
+        let tot = 0;
+        paras.forEach((p,i)=>{
+            measCtx.font = f+'px '+font;
+            tot += wrapText(measCtx,p,W-PAD*2).length*l;
+            if(i<paras.length-1) tot+=g;
         });
-    });
-    list.querySelectorAll('.kf-btn-remove').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const name = btn.dataset.name;
-            if (S().activeFont === name) { S().activeFont = null; buildAndApply(); }
-            const font = S().fonts.find(f => f.name === name);
-            if (font?.key) {
-                try { await deleteFont(font.key); }
-                catch (error) { toast('저장소 삭제 실패: ' + error.message, 'error'); return; }
-            }
-            S().fonts = S().fonts.filter(f => f.name !== name);
-            saveSettingsDebounced();
-            renderFontList();
-            toast(`🗑️ "${name}" 삭제됨`, 'info');
-        });
-    });
-}
+        return { tot, l, g };
+    }
 
-function esc(str) {
-    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ── Local file ─────────────────────────────────────────────────────────────
-
-async function loadLocalFile(file, customName) {
-    const ext = file.name.split('.').pop().toLowerCase();
-    const formats = { ttf: 'truetype', otf: 'opentype', woff: 'woff', woff2: 'woff2' };
-    if (!formats[ext]) throw new Error('TTF, OTF, WOFF, WOFF2만 업로드할 수 있습니다.');
-    const fontFamily = customName || file.name.replace(/\.[^.]+$/, '');
-    return { name: fontFamily, fontFamily, type: 'local', blob: file, format: formats[ext] };
-}
-
-// ── Noonnu CSS parse ───────────────────────────────────────────────────────
-
-async function parseNoonnuCSS(css, customName) {
-    css = css.trim();
-
-    // @import url(...) 형식
-    if (css.startsWith('@import')) {
-        const urlMatch = css.match(/@import\s+url\(['"]?([^'"\)]+)['"]?\)/);
-        if (!urlMatch) throw new Error('@import URL을 인식할 수 없습니다.');
-        const cssUrl = urlMatch[1];
-
-        // 원격 CSS fetch → @font-face 추출 + 상대경로 → 절대경로 변환
-        let resolvedCss = '';
-        let families = [];
-        try {
-            const res = await fetch(cssUrl);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const remoteCss = await res.text();
-
-            // 상대경로 → 절대경로 변환
-            const baseUrl = cssUrl.substring(0, cssUrl.lastIndexOf('/') + 1);
-            resolvedCss = remoteCss.replace(
-                /url\(['"]?(?!https?:\/\/|data:)([^'"\)]+)['"]?\)/g,
-                (match, path) => `url('${baseUrl}${path}')`
-            );
-
-            // font-family 목록 수집
-            const fmMatches = [...remoteCss.matchAll(/font-family\s*:\s*['"]([^'"]+)['"]/g)];
-            families = [...new Set(fmMatches.map(m => m[1].trim()))];
-        } catch(e) {
-            throw new Error(`CSS 파일을 가져오지 못했습니다: ${e.message}\n폰트 이름 칸에 직접 입력해주세요.`);
+    let fs, lh, pg, totH;
+    if (manualFs >= 8) {
+        const r = measureAt(manualFs);
+        fs=manualFs; lh=r.l; pg=r.g; totH=r.tot;
+    } else {
+        const avail = baseH - topFixed - bottomFixed - GAP - nameBlock;
+        let picked = null;
+        for (let f=22; f>=13; f--) {
+            const r = measureAt(f);
+            if (r.tot <= avail) { picked={f,...r}; break; }
         }
+        if (!picked) picked={f:13,...measureAt(13)};
+        fs=picked.f; lh=picked.l; pg=picked.g; totH=picked.tot;
+    }
 
-        if (families.length === 0) throw new Error('CSS 파일에서 font-family를 찾지 못했습니다.');
+    // 텍스트가 기본 높이를 초과하면 캔버스를 늘림 (최대 3배)
+    const neededH = topFixed + totH + nameBlock + GAP + bottomFixed;
+    const H = Math.max(baseH, Math.min(Math.round(neededH), baseH*3));
 
-        // 사용할 font-family 결정
-        let fontFamily = customName || '';
-        if (!fontFamily) {
-            if (families.length === 1) {
-                fontFamily = families[0];
-            } else {
-                // 여러 개면 선택 팝업
-                fontFamily = await showFamilyPicker(families, resolvedCss);
-                if (!fontFamily) throw new Error('폰트를 선택하지 않았습니다.');
-            }
-        }
+    const bodyFont=`${fs}px ${font}`;
+    const metaFont=`${Math.max(11,fs-8)}px ${font}`;
 
-        return {
-            name: customName || fontFamily,
-            fontFamily,
-            cssContent: resolvedCss, // 절대경로로 변환된 전체 CSS
-            type: 'noonnu'
+    canvas.width=W; canvas.height=H;
+    const ctx=canvas.getContext('2d');
+
+    if (bg==='unsplash' && photoUrl) {
+        const img=new Image(); img.crossOrigin='anonymous';
+        img.onload=()=>{
+            const sc=Math.max(W/img.width,H/img.height);
+            ctx.drawImage(img,(W-img.width*sc)/2,(H-img.height*sc)/2,img.width*sc,img.height*sc);
+            ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fillRect(0,0,W,H);
+            drawContent(ctx,W,H,PAD,lh,pg,paras,charName,bodyFont,metaFont,tc,align,{rule:'rgba(255,255,255,0.4)',ornament:'rgba(255,255,255,0.7)'});
+            ctx.font='11px sans-serif'; ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.textAlign='right';
+            ctx.fillText('Photo: '+photoCredit+' / Unsplash',W-16,H-12);
         };
+        img.onerror=()=>{ ctx.fillStyle='#1a1714'; ctx.fillRect(0,0,W,H); drawContent(ctx,W,H,PAD,lh,pg,paras,charName,bodyFont,metaFont,tc,align,THEMES.dark); };
+        img.src=photoUrl; return;
     }
-
-    // @font-face 형식 처리
-    const familyMatch = css.match(/font-family\s*:\s*['"]?([^'";\n]+)['"]?\s*;/);
-    if (!familyMatch) throw new Error('@font-face 코드에서 font-family를 찾을 수 없습니다.');
-    const fontFamily = familyMatch[1].trim();
-    const name = customName || fontFamily;
-    return { name, fontFamily, cssContent: css, type: 'noonnu' };
+    const grad=ctx.createLinearGradient(0,0,W,H);
+    grad.addColorStop(0,theme.bg[0]); grad.addColorStop(1,theme.bg[1]);
+    ctx.fillStyle=grad; ctx.fillRect(0,0,W,H);
+    addNoise(ctx,W,H,bg==='dark'?0.04:0.02);
+    drawContent(ctx,W,H,PAD,lh,pg,paras,charName,bodyFont,metaFont,tc,align,theme);
 }
 
-// 여러 font-family 중 선택 팝업
-function showFamilyPicker(families, resolvedCss) {
-    return new Promise((resolve) => {
-        document.getElementById('kwc-family-picker')?.remove();
+function drawContent(ctx,W,H,PAD,lh,pg,paras,charName,bodyFont,metaFont,tc,align,theme) {
+    drawBorder(ctx,theme,W,H);
+    const ornY=PAD+20;
+    drawOrnament(ctx,W/2,ornY,theme.ornament,false);
+    drawRule(ctx,PAD+24,ornY+22,W-PAD-24,theme.rule);
 
-        // 미리보기용 폰트 스타일 주입
-        let previewStyle = document.getElementById('kwc-picker-preview-style');
-        if (!previewStyle) {
-            previewStyle = document.createElement('style');
-            previewStyle.id = 'kwc-picker-preview-style';
-            document.head.appendChild(previewStyle);
-        }
-        previewStyle.textContent = resolvedCss || '';
+    ctx.font=bodyFont;
+    const paraLines=paras.map(p=>wrapText(ctx,p,W-PAD*2));
+    let totH=0; paraLines.forEach((l,i)=>{ totH+=l.length*lh; if(i<paraLines.length-1)totH+=pg; });
+    let curY=Math.max(ornY+52,(H-totH)/2);
 
-        const overlay = document.createElement('div');
-        overlay.id = 'kwc-family-picker';
-        overlay.style.cssText = `
-            position:fixed; top:0; left:0; width:100vw; height:100vh;
-            background:rgba(0,0,0,0.55); z-index:2147483647;
-            display:flex; align-items:center; justify-content:center;
-            backdrop-filter:none !important; -webkit-backdrop-filter:none !important;
-        `;
+    const tx=align==='left'?PAD+8:align==='right'?W-PAD-8:W/2;
+    ctx.textAlign=align==='left'?'left':align==='right'?'right':'center';
+    ctx.fillStyle=tc.text; ctx.font=bodyFont;
 
-        const box = document.createElement('div');
-        box.style.cssText = `
-            background:#ffffff;
-            backdrop-filter:none !important; -webkit-backdrop-filter:none !important;
-            border-radius:16px;
-            padding:24px 20px 20px;
-            max-width:380px; width:92%;
-            box-shadow:0 12px 40px rgba(0,0,0,0.35);
-            max-height:80vh;
-            overflow-y:auto;
-            box-sizing:border-box;
-            font-family:sans-serif;
-            color:#111;
-        `;
-
-        const title = document.createElement('div');
-        title.style.cssText = 'font-weight:700; font-size:1.1em; margin-bottom:4px; color:#111;';
-        title.textContent = '폰트를 선택하세요';
-
-        const sub = document.createElement('div');
-        sub.style.cssText = 'font-size:0.78em; color:#888; margin-bottom:16px;';
-        sub.textContent = `이 CSS 파일에 ${families.length}개의 폰트가 있습니다.`;
-
-        const list = document.createElement('div');
-        list.style.cssText = 'display:flex; flex-direction:column; gap:8px;';
-
-        families.forEach(fam => {
-            const btn = document.createElement('button');
-            btn.style.cssText = `
-                padding:12px 14px;
-                background:#f5f5f7;
-                border:1.5px solid #e0e0e0;
-                border-radius:10px;
-                cursor:pointer;
-                text-align:left;
-                transition:border-color 0.15s, background 0.15s;
-                width:100%;
-            `;
-
-            const label = document.createElement('div');
-            label.style.cssText = 'font-size:0.72em; color:#999; margin-bottom:4px; font-family:sans-serif;';
-            label.textContent = fam;
-
-            const preview = document.createElement('div');
-            preview.style.cssText = `font-family:'${fam}',sans-serif; font-size:1.15em; color:#111; line-height:1.5;`;
-            preview.textContent = '가나다라마바사 ABC abc 123';
-
-            btn.appendChild(label);
-            btn.appendChild(preview);
-
-            btn.onmouseenter = () => {
-                btn.style.background = '#eef0ff';
-                btn.style.borderColor = '#7c5cbf';
-            };
-            btn.onmouseleave = () => {
-                btn.style.background = '#f5f5f7';
-                btn.style.borderColor = '#e0e0e0';
-            };
-            btn.onclick = () => { overlay.remove(); previewStyle.textContent = ''; resolve(fam); };
-            list.appendChild(btn);
-        });
-
-        const cancel = document.createElement('button');
-        cancel.style.cssText = `
-            margin-top:14px; width:100%; padding:10px;
-            background:#f0f0f0; border:1.5px solid #ddd;
-            border-radius:10px; color:#555; cursor:pointer;
-            font-size:0.88em; font-family:sans-serif;
-            transition:background 0.15s;
-        `;
-        cancel.textContent = '취소';
-        cancel.onmouseenter = () => cancel.style.background = '#e4e4e4';
-        cancel.onmouseleave = () => cancel.style.background = '#f0f0f0';
-        cancel.onclick = () => { overlay.remove(); previewStyle.textContent = ''; resolve(null); };
-
-        box.appendChild(title);
-        box.appendChild(sub);
-        box.appendChild(list);
-        box.appendChild(cancel);
-        overlay.appendChild(box);
-        document.documentElement.appendChild(overlay);
-    });
-}
-
-// ── Events ─────────────────────────────────────────────────────────────────
-
-let pendingLocal = null;
-
-function bindEvents() {
-    // Tabs
-    document.querySelectorAll('#korean-fonts-panel .kf-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            document.querySelectorAll('#korean-fonts-panel .kf-tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('#korean-fonts-panel .kf-tab-content').forEach(c => c.classList.remove('active'));
-            tab.classList.add('active');
-            document.getElementById(`kf-tab-${tab.dataset.tab}`)?.classList.add('active');
-            if (tab.dataset.tab === 'manage') renderFontList();
-        });
+    paraLines.forEach((lines,pi)=>{
+        lines.forEach(line=>{ drawStyledLine(ctx,line,tx,curY,bodyFont,align); curY+=lh; });
+        if(pi<paraLines.length-1) curY+=pg;
     });
 
-    // Drop zone
-    const dropZone = document.getElementById('kf-drop-zone');
-    const fileInput = document.getElementById('kf-file-input');
-    dropZone?.addEventListener('click', () => fileInput?.click());
-    dropZone?.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-    dropZone?.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-    dropZone?.addEventListener('drop', e => {
-        e.preventDefault(); dropZone.classList.remove('drag-over');
-        if (e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0]);
-    });
-    fileInput?.addEventListener('change', () => { if (fileInput.files[0]) handleFileSelect(fileInput.files[0]); });
-
-    async function handleFileSelect(file) {
-        const name = document.getElementById('kf-local-name')?.value.trim() || '';
-        try {
-            pendingLocal = await loadLocalFile(file, name);
-            let ps = document.getElementById('kwc-pending-style');
-            if (!ps) { ps = document.createElement('style'); ps.id = 'kwc-pending-style'; document.head.appendChild(ps); }
-            if (ps._url) URL.revokeObjectURL(ps._url);
-            ps._url = URL.createObjectURL(pendingLocal.blob);
-            ps.textContent = `@font-face { font-family: '${safeFamily(pendingLocal.fontFamily)}'; src: url('${ps._url}') format('${pendingLocal.format}'); }`;
-            const pt = document.getElementById('kf-local-preview-text');
-            if (pt) pt.style.fontFamily = `'${pendingLocal.fontFamily}', sans-serif`;
-            document.getElementById('kf-local-preview').style.display = 'block';
-            dropZone.querySelector('.kf-upload-text').textContent = `📄 ${file.name}`;
-            toast(`파일 로드: ${file.name}`);
-        } catch(err) { toast('파일 오류: ' + err.message, 'error'); }
+    if (S().showCharName && charName) {
+        const ay=curY+22;
+        drawRule(ctx,PAD+24,ay-8,W-PAD-24,theme.rule);
+        ctx.font=metaFont; ctx.fillStyle=tc.accent; ctx.textAlign='right';
+        ctx.fillText('\u2014 '+charName,W-PAD-16,ay+16);
     }
-
-    document.getElementById('kf-add-local')?.addEventListener('click', async () => {
-        const name = document.getElementById('kf-local-name')?.value.trim() || '';
-        if (!pendingLocal) { toast('파일을 먼저 선택해주세요.', 'error'); return; }
-        const fd = { ...pendingLocal };
-        if (name) { fd.name = name; fd.fontFamily = name; }
-        if (S().fonts.find(f => f.name === fd.name)) { toast(`"${fd.name}" 이름이 이미 있습니다.`, 'error'); return; }
-        const key = fontKey();
-        try { await putFont(key, { blob: fd.blob, format: fd.format }); }
-        catch (error) { toast('폰트 저장 실패: ' + error.message, 'error'); return; }
-        S().fonts.push({ name: fd.name, fontFamily: fd.fontFamily, type: 'local', key });
-        saveSettingsDebounced();
-        pendingLocal = null;
-        const preview = document.getElementById('kwc-pending-style');
-        if (preview?._url) URL.revokeObjectURL(preview._url);
-        preview?.remove();
-        document.getElementById('kf-local-name').value = '';
-        document.getElementById('kf-local-preview').style.display = 'none';
-        dropZone.querySelector('.kf-upload-text').textContent = '클릭하거나 파일을 드래그하세요';
-        fileInput.value = '';
-        toast(`✅ "${fd.name}" 추가됨!`);
-    });
-
-    // Noonnu CSS paste: live preview as you type
-    const cssInput = document.getElementById('kf-noonnu-css');
-    cssInput?.addEventListener('input', async () => {
-        const css = cssInput.value.trim();
-        if (!css) { document.getElementById('kf-noonnu-preview').style.display = 'none'; return; }
-
-        // @import는 타이핑 중 자동 fetch 안 함 (추가 버튼 누를 때만)
-        if (css.startsWith('@import')) {
-            document.getElementById('kf-noonnu-preview').style.display = 'none';
-            return;
-        }
-
-        try {
-            const fd = await parseNoonnuCSS(css, document.getElementById('kf-noonnu-name')?.value.trim() || '');
-            const nameEl = document.getElementById('kf-noonnu-name');
-            if (nameEl && !nameEl.value.trim()) nameEl.value = fd.fontFamily;
-            let ps = document.getElementById('kwc-noonnu-preview-style');
-            if (!ps) { ps = document.createElement('style'); ps.id = 'kwc-noonnu-preview-style'; document.head.appendChild(ps); }
-            ps.textContent = fd.cssContent;
-            const pt = document.getElementById('kf-noonnu-preview-text');
-            if (pt) pt.style.fontFamily = `'${fd.fontFamily}', sans-serif`;
-            document.getElementById('kf-noonnu-preview').style.display = 'block';
-            document.getElementById('kf-noonnu-error').style.display = 'none';
-        } catch(_) {
-            document.getElementById('kf-noonnu-preview').style.display = 'none';
-        }
-    });
-
-    document.getElementById('kf-add-noonnu')?.addEventListener('click', async () => {
-        const css = document.getElementById('kf-noonnu-css')?.value.trim();
-        const name = document.getElementById('kf-noonnu-name')?.value.trim() || '';
-        const errEl = document.getElementById('kf-noonnu-error');
-        if (!css) { errEl.textContent = 'CSS 코드를 붙여넣어주세요.'; errEl.style.display = 'block'; return; }
-        try {
-            const fd = await parseNoonnuCSS(css, name);
-            if (S().fonts.find(f => f.name === fd.name)) { errEl.textContent = `"${fd.name}" 이름이 이미 있습니다.`; errEl.style.display = 'block'; return; }
-            const key = fontKey();
-            await putFont(key, { cssContent: fd.cssContent });
-            S().fonts.push({ name: fd.name, fontFamily: fd.fontFamily, type: 'noonnu', key });
-            S().activeFont = fd.name;
-            buildAndApply();
-            saveSettingsDebounced();
-            document.getElementById('kf-noonnu-css').value = '';
-            document.getElementById('kf-noonnu-name').value = '';
-            document.getElementById('kf-noonnu-preview').style.display = 'none';
-            document.getElementById('kwc-noonnu-preview-style')?.remove();
-            errEl.style.display = 'none';
-            toast(`✅ "${fd.name}" 추가 및 적용됨!`);
-        } catch(err) {
-            errEl.textContent = '⚠️ ' + err.message;
-            errEl.style.display = 'block';
-        }
-    });
-
-    document.getElementById('kf-apply-scope')?.addEventListener('change', event => {
-        S().applyScope = event.target.value;
-        buildAndApply();
-        saveSettingsDebounced();
-    });
-
-    // Font size slider
-    const slider = document.getElementById('kf-font-size');
-    const sizeLabel = document.getElementById('kf-font-size-label');
-    slider?.addEventListener('input', () => {
-        S().fontSize = parseInt(slider.value);
-        sizeLabel.textContent = slider.value + 'px';
-        buildAndApply();
-        saveSettingsDebounced();
-    });
-    document.getElementById('kf-reset-size')?.addEventListener('click', () => {
-        S().fontSize = null;
-        slider.value = 16; sizeLabel.textContent = '16px';
-        buildAndApply();
-        saveSettingsDebounced();
-    });
-
-    // Bold toggle
-    const boldChk = document.getElementById('kf-bold-toggle');
-    boldChk?.addEventListener('change', () => {
-        S().bold = boldChk.checked;
-        buildAndApply();
-        saveSettingsDebounced();
-        toast(boldChk.checked ? '볼드체 켜짐' : '볼드체 꺼짐', 'info');
-    });
-
-    // Reset all
-    document.getElementById('kf-reset-font')?.addEventListener('click', () => {
-        resetAll();
-        slider.value = 16; sizeLabel.textContent = '16px';
-        if (boldChk) boldChk.checked = false;
-        renderFontList();
-        toast('기본 폰트로 복원됨', 'info');
-    });
+    drawRule(ctx,PAD+24,H-PAD-26,W-PAD-24,theme.rule);
+    drawOrnament(ctx,W/2,H-PAD-14,theme.ornament,true);
 }
 
-function restoreState() {
-    if (S().activeFont || S().fontSize || S().bold) buildAndApply();
+function drawBorder(ctx,t,W,H){
+    const m=14;
+    ctx.strokeStyle=t.rule;ctx.lineWidth=0.8;ctx.strokeRect(m,m,W-m*2,H-m*2);
+    ctx.strokeStyle=t.ornament;ctx.lineWidth=2;ctx.strokeRect(m+7,m+7,W-(m+7)*2,H-(m+7)*2);
+    ctx.fillStyle=t.ornament;
+    [[m+7,m+7],[W-m-7,m+7],[m+7,H-m-7],[W-m-7,H-m-7]].forEach(([x,y])=>ctx.fillRect(x-3,y-3,6,6));
+}
+function drawRule(ctx,x1,y,x2,c){ctx.save();ctx.strokeStyle=c;ctx.lineWidth=0.7;ctx.globalAlpha=0.55;ctx.beginPath();ctx.moveTo(x1,y);ctx.lineTo(x2,y);ctx.stroke();ctx.restore();}
+function drawOrnament(ctx,cx,cy,c,flip){ctx.save();ctx.fillStyle=c;ctx.globalAlpha=0.8;ctx.font=flip?'18px serif':'20px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(flip?'\u2767':'\u2766',cx,cy);ctx.restore();}
+function addNoise(ctx,W,H,a){ctx.save();ctx.globalAlpha=a;for(let y=0;y<H;y+=2)for(let x=0;x<W;x+=2){const v=Math.random()>0.5?255:0;ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(x,y,1,1);}ctx.restore();}
+function wrapText(ctx,text,maxW){
+    // 마크다운 기호 제거 후 측정 (** * ` 제거)
+    const clean = text.replace(/\*\*(.+?)\*\*/g,'$1').replace(/\*(.+?)\*/g,'$1').replace(/`(.+?)`/g,'$1');
+    const words=clean.split(' ');const lines=[];let cur='';
+    words.forEach(w=>{const t=cur?cur+' '+w:w;if(ctx.measureText(t).width>maxW&&cur){lines.push(cur);cur=w;}else cur=t;});
+    if(cur)lines.push(cur);return lines;
+}
 
-    const slider = document.getElementById('kf-font-size');
-    const sizeLabel = document.getElementById('kf-font-size-label');
-    if (slider && S().fontSize) {
-        slider.value = S().fontSize;
-        sizeLabel.textContent = S().fontSize + 'px';
+// 마크다운 스타일 적용해서 한 줄 그리기
+function drawStyledLine(ctx, line, x, y, baseFont, align) {
+    const parts = [];
+    const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|[^*`]+)/g;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+        if (m[2]) parts.push({ text: m[2], bold: true, italic: false });
+        else if (m[3]) parts.push({ text: m[3], bold: false, italic: true });
+        else if (m[4]) parts.push({ text: m[4], bold: false, italic: false, code: true });
+        else parts.push({ text: m[0], bold: false, italic: false });
     }
-    const boldChk = document.getElementById('kf-bold-toggle');
-    if (boldChk) boldChk.checked = !!S().bold;
-    const scope = document.getElementById('kf-apply-scope');
-    if (scope) scope.value = S().applyScope;
+    const sizeMatch = baseFont.match(/(\d+)px/);
+    const size = sizeMatch ? parseInt(sizeMatch[1]) : 18;
+    const fontName = baseFont.replace(/^[\d.]+px\s*/, '');
+
+    // 전체 너비 계산
+    let totalW = 0;
+    parts.forEach(p => {
+        ctx.font = (p.bold?'bold ':'')+(p.italic?'italic ':'')+size+'px '+fontName;
+        totalW += ctx.measureText(p.text).width;
+    });
+
+    // 시작 x 계산
+    let curX = align==='center' ? x - totalW/2 : align==='right' ? x - totalW : x;
+
+    // 핵심: 개별 파트는 항상 left 기준으로 그려야 함
+    const savedAlign = ctx.textAlign;
+    ctx.textAlign = 'left';
+
+    parts.forEach(p => {
+        ctx.font = (p.bold?'bold ':'')+(p.italic?'italic ':'')+size+'px '+fontName;
+        if (p.code) {
+            const w = ctx.measureText(p.text).width;
+            ctx.save(); ctx.globalAlpha=0.15; ctx.fillRect(curX-2, y-size+2, w+4, size+2); ctx.restore();
+        }
+        ctx.fillText(p.text, curX, y);
+        curX += ctx.measureText(p.text).width;
+    });
+
+    ctx.textAlign = savedAlign;
+    ctx.font = baseFont;
 }
-
-// ── Entry ──────────────────────────────────────────────────────────────────
-
-jQuery(async () => {
-    initSettings();
-
-    const baseUrl = import.meta.url.replace('index.js', '');
-    const html = await $.get(`${baseUrl}index.html`);
-
-    // HTML already contains the full inline-drawer structure with chevron icon
-    $('#extensions_settings2').append(html);
-
-    bindEvents();
-    await migrateFonts();
-    restoreState();
-});
