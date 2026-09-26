@@ -20,6 +20,7 @@ const STYLE_ID = 'kwc-applied-style';
 const FACE_ID = 'kwc-active-face';
 let activeUrl = null;
 let applySequence = 0;
+let previewUrls = [];
 
 function openFontDB() {
     return new Promise((resolve, reject) => {
@@ -182,8 +183,14 @@ function renderFontList() {
         return;
     }
 
+    previewUrls.forEach(url => URL.revokeObjectURL(url));
+    previewUrls = [];
+    document.getElementById('kwc-list-preview-faces')?.remove();
     list.innerHTML = '';
-    S().fonts.forEach(font => {
+    const previewStyle = document.createElement('style');
+    previewStyle.id = 'kwc-list-preview-faces';
+    document.head.appendChild(previewStyle);
+    S().fonts.forEach((font, index) => {
         const isActive = font.name === S().activeFont;
         const item = document.createElement('div');
         item.className = 'kf-font-item' + (isActive ? ' active' : '');
@@ -201,6 +208,25 @@ function renderFontList() {
             </div>
         `;
         list.appendChild(item);
+        const swatch = item.querySelector('.kf-font-swatch');
+        const previewFamily = `kwc-preview-${index}`;
+        (async () => {
+            try {
+                const stored = font.key ? await getFont(font.key) : null;
+                if (!previewStyle.isConnected || !swatch.isConnected) return;
+                if (stored?.blob) {
+                    const url = URL.createObjectURL(stored.blob);
+                    previewUrls.push(url);
+                    previewStyle.textContent += `\n@font-face { font-family: '${previewFamily}'; src: url('${url}') format('${stored.format}'); }`;
+                    swatch.style.fontFamily = `'${previewFamily}', sans-serif`;
+                } else {
+                    const css = stored?.cssContent || font.cssContent;
+                    if (!css) return;
+                    previewStyle.textContent += `\n${css}`;
+                    swatch.style.fontFamily = `'${safeFamily(font.fontFamily)}', sans-serif`;
+                }
+            } catch (error) { console.error('Kor w.Chat: 미리보기 로드 실패', error); }
+        })();
     });
 
     list.querySelectorAll('.kf-btn-apply').forEach(btn => {
